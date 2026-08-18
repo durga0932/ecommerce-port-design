@@ -3,38 +3,39 @@ pipeline {
     /*
      * ============================================================
      * ECOMMERCE PORT DESIGN
-     * COMPLETE DEVOPS CI/CD PIPELINE
+     * STATIC HTML/CSS/JS DEVOPS CI/CD PIPELINE
      *
-     * Platform:
-     *   Jenkins on Windows
-     *
-     * Flow:
-     *   GitLab
-     *      ↓
-     *   Checkout
-     *      ↓
-     *   NPM Validation
-     *      ↓
-     *   SonarQube
-     *      ↓
-     *   Quality Gate
-     *      ↓
-     *   Docker Build
-     *      ↓
-     *   Trivy Security Scan
-     *      ↓
-     *   Docker Hub
-     *      ↓
-     *   Terraform
-     *      ↓
-     *   AWS EKS
-     *      ↓
-     *   Kubernetes Deployment
-     *      ↓
-     *   Health Check
-     *
-     * Repository:
+     * GitLab:
      * https://gitlab.com/SOFTAPP-TECHNOLOGIES/ecommerce-port-design.git
+     *
+     * Branch:
+     * main
+     *
+     * Jenkins:
+     * Windows
+     *
+     * Pipeline:
+     *
+     * GitLab
+     *   ↓
+     * Checkout
+     *   ↓
+     * SonarQube
+     *   ↓
+     * Quality Gate
+     *   ↓
+     * Docker Build
+     *   ↓
+     * Trivy Scan
+     *   ↓
+     * Docker Hub
+     *   ↓
+     * AWS EKS
+     *   ↓
+     * Kubernetes
+     *   ↓
+     * Rolling Deployment
+     *
      * ============================================================
      */
 
@@ -42,48 +43,66 @@ pipeline {
 
 
     // ============================================================
-    // ENVIRONMENT
+    // ENVIRONMENT VARIABLES
     // ============================================================
 
     environment {
 
-        // -------------------------------
-        // Docker
-        // -------------------------------
+        // --------------------------------------------------------
+        // GitLab
+        // --------------------------------------------------------
 
-        DOCKER_IMAGE = "YOUR_DOCKERHUB_USERNAME/ecommerce-port-design"
+        GITLAB_URL =
+            'https://gitlab.com/SOFTAPP-TECHNOLOGIES/ecommerce-port-design.git'
 
-        IMAGE_TAG = "${BUILD_NUMBER}"
-
-        FULL_IMAGE = "${DOCKER_IMAGE}:${IMAGE_TAG}"
+        GIT_BRANCH = 'main'
 
 
-        // -------------------------------
+        // --------------------------------------------------------
+        // Docker Hub
+        // --------------------------------------------------------
+
+        DOCKER_IMAGE =
+            'YOUR_DOCKERHUB_USERNAME/ecommerce-port-design'
+
+        IMAGE_TAG =
+            "${BUILD_NUMBER}"
+
+        FULL_IMAGE =
+            "${DOCKER_IMAGE}:${IMAGE_TAG}"
+
+
+        // --------------------------------------------------------
         // AWS
-        // -------------------------------
+        // --------------------------------------------------------
 
-        AWS_REGION = "ap-south-1"
+        AWS_REGION =
+            'ap-south-1'
 
-        EKS_CLUSTER_NAME = "ecommerce-eks"
+        EKS_CLUSTER_NAME =
+            'ecommerce-eks'
 
 
-        // -------------------------------
+        // --------------------------------------------------------
         // Kubernetes
-        // -------------------------------
+        // --------------------------------------------------------
 
-        K8S_NAMESPACE = "ecommerce"
+        K8S_NAMESPACE =
+            'ecommerce'
 
-        K8S_DEPLOYMENT = "ecommerce-port-design"
+        K8S_DEPLOYMENT =
+            'ecommerce-port-design'
 
-        K8S_CONTAINER = "ecommerce-port-design"
+        K8S_CONTAINER =
+            'ecommerce-port-design'
 
 
-        // -------------------------------
+        // --------------------------------------------------------
         // SonarQube
-        // -------------------------------
+        // --------------------------------------------------------
 
-        SONAR_PROJECT_KEY = "ecommerce-port-design"
-
+        SONAR_PROJECT_KEY =
+            'ecommerce-port-design'
     }
 
 
@@ -93,23 +112,19 @@ pipeline {
 
     options {
 
-        // Do not allow two builds at the same time
         disableConcurrentBuilds()
 
-        // Keep last 10 builds
         buildDiscarder(
             logRotator(
                 numToKeepStr: '10'
             )
         )
 
-        // Timeout
         timeout(
             time: 60,
             unit: 'MINUTES'
         )
 
-        // Add timestamps to console output
         timestamps()
     }
 
@@ -122,138 +137,128 @@ pipeline {
 
 
         // ========================================================
-        // 1. CHECKOUT
+        // STAGE 1
+        // GITLAB CHECKOUT
         // ========================================================
 
-        stage('01 - Checkout GitLab') {
+        stage('01 - GitLab Checkout') {
 
             steps {
 
                 echo "=============================================="
-                echo "CHECKOUT SOURCE CODE"
+                echo "GITLAB CHECKOUT"
                 echo "=============================================="
 
-                checkout scm
+                echo "Repository: ${GITLAB_URL}"
+                echo "Branch    : ${GIT_BRANCH}"
+
+                /*
+                 * GitLab repository explicitly defined.
+                 *
+                 * Jenkins Credentials:
+                 * gitlab-credentials
+                 */
+
+                git(
+                    url: "${GITLAB_URL}",
+                    branch: "${GIT_BRANCH}",
+                    credentialsId: 'gitlab-credentials'
+                )
 
                 bat '''
                     echo.
-                    echo ===== Git Version =====
-                    git --version
+                    echo ===== CURRENT BRANCH =====
 
-                    echo.
-                    echo ===== Current Branch =====
                     git branch
 
                     echo.
-                    echo ===== Git Commit =====
-                    git rev-parse --short HEAD
+                    echo ===== LATEST COMMIT =====
+
+                    git log -1 --oneline
+
+                    echo.
+                    echo ===== REMOTE =====
+
+                    git remote -v
                 '''
             }
         }
 
 
         // ========================================================
-        // 2. VERIFY PROJECT
+        // STAGE 2
+        // PROJECT VALIDATION
         // ========================================================
 
-        stage('02 - Verify Project Structure') {
+        stage('02 - Project Validation') {
 
             steps {
 
                 echo "=============================================="
-                echo "VERIFY PROJECT STRUCTURE"
+                echo "VALIDATING HTML PROJECT"
                 echo "=============================================="
 
                 bat '''
                     echo.
-                    echo ===== Root Directory =====
+                    echo ===== ROOT PROJECT =====
+
                     dir
 
                     echo.
-                    echo ===== Source Directory =====
+                    echo ===== SRC DIRECTORY =====
+
                     dir src
 
                     echo.
-                    echo ===== HTML Directory =====
+                    echo ===== HTML DIRECTORY =====
+
                     dir src\\html
 
                     echo.
-                    echo ===== Assets Directory =====
+                    echo ===== ASSETS DIRECTORY =====
+
                     dir src\\assets
 
                     echo.
-                    echo ===== Dockerfile =====
+                    echo ===== CHECKING INDEX.HTML =====
+
+                    if not exist src\\html\\index.html (
+                        echo ERROR: index.html not found
+                        exit /b 1
+                    )
+
+                    echo index.html found successfully.
+
+                    echo.
+                    echo ===== CHECKING DOCKERFILE =====
 
                     if not exist Dockerfile (
                         echo ERROR: Dockerfile not found
                         exit /b 1
                     )
 
-                    echo Dockerfile found.
+                    echo Dockerfile found successfully.
 
                     echo.
-                    echo ===== package.json =====
+                    echo ===== CHECKING NGINX CONFIG =====
 
-                    if not exist package.json (
-                        echo ERROR: package.json not found
+                    if not exist docker\\nginx.conf (
+                        echo ERROR: docker\\nginx.conf not found
                         exit /b 1
                     )
 
-                    echo package.json found.
+                    echo nginx.conf found successfully.
                 '''
             }
         }
 
 
         // ========================================================
-        // 3. NPM INSTALL / VALIDATION
+        // STAGE 3
+        // SONARQUBE
         // ========================================================
 
-        stage('03 - NPM Validation') {
-
-            steps {
-
-                echo "=============================================="
-                echo "NPM INSTALL / PROJECT VALIDATION"
-                echo "=============================================="
-
-                bat '''
-                    echo.
-                    echo ===== Node Version =====
-                    node --version
-
-                    echo.
-                    echo ===== NPM Version =====
-                    npm --version
-
-                    echo.
-                    echo ===== Installing Dependencies =====
-
-                    if exist package-lock.json (
-                        npm ci --ignore-scripts
-                    ) else (
-                        npm install --ignore-scripts
-                    )
-
-                    echo.
-                    echo ===== Running Available Tests =====
-
-                    npm test --if-present
-
-                    echo.
-                    echo ===== Running Available Build =====
-
-                    npm run build --if-present
-                '''
-            }
-        }
-
-
-        // ========================================================
-        // 4. SONARQUBE
-        // ========================================================
-
-        stage('04 - SonarQube Analysis') {
+        stage('03 - SonarQube Analysis') {
 
             steps {
 
@@ -276,10 +281,11 @@ pipeline {
 
 
         // ========================================================
-        // 5. SONAR QUALITY GATE
+        // STAGE 4
+        // SONAR QUALITY GATE
         // ========================================================
 
-        stage('05 - SonarQube Quality Gate') {
+        stage('04 - SonarQube Quality Gate') {
 
             steps {
 
@@ -301,24 +307,26 @@ pipeline {
 
 
         // ========================================================
-        // 6. DOCKER BUILD
+        // STAGE 5
+        // DOCKER BUILD
         // ========================================================
 
-        stage('06 - Docker Build') {
+        stage('05 - Docker Build') {
 
             steps {
 
                 echo "=============================================="
-                echo "BUILDING DOCKER IMAGE"
+                echo "DOCKER IMAGE BUILD"
                 echo "=============================================="
 
                 bat """
                     echo.
-                    echo ===== Docker Version =====
+                    echo ===== DOCKER VERSION =====
+
                     docker --version
 
                     echo.
-                    echo ===== Building Image =====
+                    echo ===== BUILDING IMAGE =====
 
                     docker build ^
                     --pull ^
@@ -326,7 +334,7 @@ pipeline {
                     .
 
                     echo.
-                    echo ===== Docker Image =====
+                    echo ===== IMAGE CREATED =====
 
                     docker images ${DOCKER_IMAGE}
                 """
@@ -335,7 +343,56 @@ pipeline {
 
 
         // ========================================================
-        // 7. TRIVY SECURITY SCAN
+        // STAGE 6
+        // LOCAL CONTAINER TEST
+        // ========================================================
+
+        stage('06 - Docker Container Test') {
+
+            steps {
+
+                echo "=============================================="
+                echo "DOCKER CONTAINER TEST"
+                echo "=============================================="
+
+                bat """
+                    echo.
+                    echo ===== STARTING TEST CONTAINER =====
+
+                    docker run -d ^
+                    --name ecommerce-test ^
+                    -p 8090:80 ^
+                    ${FULL_IMAGE}
+
+                    timeout /t 5 /nobreak
+
+                    echo.
+                    echo ===== TESTING HEALTH ENDPOINT =====
+
+                    curl.exe -f http://localhost:8090/health
+
+                    if %ERRORLEVEL% NEQ 0 (
+                        echo ERROR: Health check failed
+                        docker logs ecommerce-test
+                        docker rm -f ecommerce-test
+                        exit /b 1
+                    )
+
+                    echo.
+                    echo Health check successful.
+
+                    echo.
+                    echo ===== STOPPING TEST CONTAINER =====
+
+                    docker rm -f ecommerce-test
+                """
+            }
+        }
+
+
+        // ========================================================
+        // STAGE 7
+        // TRIVY SECURITY SCAN
         // ========================================================
 
         stage('07 - Trivy Security Scan') {
@@ -343,14 +400,14 @@ pipeline {
             steps {
 
                 echo "=============================================="
-                echo "TRIVY CONTAINER SECURITY SCAN"
+                echo "TRIVY SECURITY SCAN"
                 echo "=============================================="
 
                 bat """
                     trivy image ^
                     --severity HIGH,CRITICAL ^
-                    --exit-code 1 ^
                     --ignore-unfixed ^
+                    --exit-code 1 ^
                     ${FULL_IMAGE}
                 """
             }
@@ -358,10 +415,11 @@ pipeline {
 
 
         // ========================================================
-        // 8. DOCKER HUB PUSH
+        // STAGE 8
+        // DOCKER HUB PUSH
         // ========================================================
 
-        stage('08 - Push Image to Docker Hub') {
+        stage('08 - Docker Hub Push') {
 
             steps {
 
@@ -370,28 +428,35 @@ pipeline {
                 echo "=============================================="
 
                 withCredentials([
+
                     usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USERNAME',
-                        passwordVariable: 'DOCKER_PASSWORD'
+                        credentialsId:
+                            'dockerhub-credentials',
+
+                        usernameVariable:
+                            'DOCKER_USERNAME',
+
+                        passwordVariable:
+                            'DOCKER_PASSWORD'
                     )
+
                 ]) {
 
                     bat """
                         echo.
-                        echo ===== Docker Login =====
+                        echo ===== DOCKER LOGIN =====
 
                         docker login ^
                         -u %DOCKER_USERNAME% ^
                         -p %DOCKER_PASSWORD%
 
                         echo.
-                        echo ===== Push Image =====
+                        echo ===== PUSHING IMAGE =====
 
                         docker push ${FULL_IMAGE}
 
                         echo.
-                        echo ===== Docker Logout =====
+                        echo ===== LOGOUT =====
 
                         docker logout
                     """
@@ -401,7 +466,8 @@ pipeline {
 
 
         // ========================================================
-        // 9. TERRAFORM INIT
+        // STAGE 9
+        // TERRAFORM INIT
         // ========================================================
 
         stage('09 - Terraform Init') {
@@ -409,7 +475,7 @@ pipeline {
             steps {
 
                 echo "=============================================="
-                echo "TERRAFORM INITIALIZATION"
+                echo "TERRAFORM INIT"
                 echo "=============================================="
 
                 dir('terraform') {
@@ -425,7 +491,8 @@ pipeline {
 
 
         // ========================================================
-        // 10. TERRAFORM VALIDATE
+        // STAGE 10
+        // TERRAFORM VALIDATE
         // ========================================================
 
         stage('10 - Terraform Validate') {
@@ -433,7 +500,7 @@ pipeline {
             steps {
 
                 echo "=============================================="
-                echo "TERRAFORM VALIDATION"
+                echo "TERRAFORM VALIDATE"
                 echo "=============================================="
 
                 dir('terraform') {
@@ -447,7 +514,8 @@ pipeline {
 
 
         // ========================================================
-        // 11. TERRAFORM PLAN
+        // STAGE 11
+        // TERRAFORM PLAN
         // ========================================================
 
         stage('11 - Terraform Plan') {
@@ -460,18 +528,19 @@ pipeline {
 
                 dir('terraform') {
 
-                    bat """
+                    bat '''
                         terraform plan ^
                         -input=false ^
                         -out=tfplan
-                    """
+                    '''
                 }
             }
         }
 
 
         // ========================================================
-        // 12. TERRAFORM APPLY
+        // STAGE 12
+        // TERRAFORM APPLY
         // ========================================================
 
         stage('12 - Terraform Apply') {
@@ -483,12 +552,21 @@ pipeline {
                 echo "=============================================="
 
                 withCredentials([
+
                     [
-                        $class: 'AmazonWebServicesCredentialsBinding',
-                        credentialsId: 'aws-credentials',
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        $class:
+                            'AmazonWebServicesCredentialsBinding',
+
+                        credentialsId:
+                            'aws-credentials',
+
+                        accessKeyVariable:
+                            'AWS_ACCESS_KEY_ID',
+
+                        secretKeyVariable:
+                            'AWS_SECRET_ACCESS_KEY'
                     ]
+
                 ]) {
 
                     dir('terraform') {
@@ -506,10 +584,11 @@ pipeline {
 
 
         // ========================================================
-        // 13. CONNECT TO EKS
+        // STAGE 13
+        // AWS EKS CONNECTION
         // ========================================================
 
-        stage('13 - Connect to AWS EKS') {
+        stage('13 - AWS EKS Connection') {
 
             steps {
 
@@ -518,29 +597,38 @@ pipeline {
                 echo "=============================================="
 
                 withCredentials([
+
                     [
-                        $class: 'AmazonWebServicesCredentialsBinding',
-                        credentialsId: 'aws-credentials',
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        $class:
+                            'AmazonWebServicesCredentialsBinding',
+
+                        credentialsId:
+                            'aws-credentials',
+
+                        accessKeyVariable:
+                            'AWS_ACCESS_KEY_ID',
+
+                        secretKeyVariable:
+                            'AWS_SECRET_ACCESS_KEY'
                     ]
+
                 ]) {
 
                     bat """
                         echo.
-                        echo ===== AWS Identity =====
+                        echo ===== AWS IDENTITY =====
 
                         aws sts get-caller-identity
 
                         echo.
-                        echo ===== Updating EKS Kubeconfig =====
+                        echo ===== EKS KUBECONFIG =====
 
                         aws eks update-kubeconfig ^
                         --region ${AWS_REGION} ^
                         --name ${EKS_CLUSTER_NAME}
 
                         echo.
-                        echo ===== Kubernetes Nodes =====
+                        echo ===== EKS NODES =====
 
                         kubectl get nodes
                     """
@@ -550,26 +638,19 @@ pipeline {
 
 
         // ========================================================
-        // 14. KUBERNETES DEPLOYMENT
+        // STAGE 14
+        // KUBERNETES MANIFESTS
         // ========================================================
 
-        stage('14 - Kubernetes Deploy') {
+        stage('14 - Kubernetes Apply') {
 
             steps {
 
                 echo "=============================================="
-                echo "DEPLOYING APPLICATION TO KUBERNETES"
+                echo "APPLYING KUBERNETES MANIFESTS"
                 echo "=============================================="
 
                 bat """
-                    echo.
-                    echo ===== Namespace =====
-
-                    kubectl get namespace ${K8S_NAMESPACE}
-
-                    echo.
-                    echo ===== Kubernetes Deployment =====
-
                     kubectl apply ^
                     -f k8s\\namespace.yaml
 
@@ -590,15 +671,16 @@ pipeline {
 
 
         // ========================================================
-        // 15. UPDATE IMAGE
+        // STAGE 15
+        // UPDATE DOCKER IMAGE
         // ========================================================
 
-        stage('15 - Kubernetes Rolling Update') {
+        stage('15 - Kubernetes Rolling Deployment') {
 
             steps {
 
                 echo "=============================================="
-                echo "UPDATING KUBERNETES IMAGE"
+                echo "KUBERNETES ROLLING DEPLOYMENT"
                 echo "=============================================="
 
                 bat """
@@ -608,7 +690,7 @@ pipeline {
                     -n ${K8S_NAMESPACE}
 
                     echo.
-                    echo ===== Rollout Status =====
+                    echo ===== WAITING FOR ROLLOUT =====
 
                     kubectl rollout status ^
                     deployment/${K8S_DEPLOYMENT} ^
@@ -620,7 +702,8 @@ pipeline {
 
 
         // ========================================================
-        // 16. KUBERNETES VERIFICATION
+        // STAGE 16
+        // KUBERNETES VERIFICATION
         // ========================================================
 
         stage('16 - Kubernetes Verification') {
@@ -628,26 +711,26 @@ pipeline {
             steps {
 
                 echo "=============================================="
-                echo "VERIFYING KUBERNETES DEPLOYMENT"
+                echo "KUBERNETES VERIFICATION"
                 echo "=============================================="
 
                 bat """
                     echo.
-                    echo ===== Pods =====
+                    echo ===== PODS =====
 
                     kubectl get pods ^
                     -n ${K8S_NAMESPACE} ^
                     -o wide
 
                     echo.
-                    echo ===== Deployment =====
+                    echo ===== DEPLOYMENT =====
 
                     kubectl get deployment ^
                     ${K8S_DEPLOYMENT} ^
                     -n ${K8S_NAMESPACE}
 
                     echo.
-                    echo ===== Service =====
+                    echo ===== SERVICE =====
 
                     kubectl get service ^
                     -n ${K8S_NAMESPACE}
@@ -663,64 +746,84 @@ pipeline {
 
 
         // ========================================================
-        // 17. APPLICATION HEALTH CHECK
+        // STAGE 17
+        // FINAL HEALTH CHECK
         // ========================================================
 
-        stage('17 - Application Health Check') {
+        stage('17 - Final Health Check') {
 
             steps {
 
                 echo "=============================================="
-                echo "APPLICATION HEALTH CHECK"
+                echo "FINAL APPLICATION HEALTH CHECK"
                 echo "=============================================="
 
                 bat """
                     echo.
-                    echo ===== Pod Status =====
+                    echo ===== POD STATUS =====
 
                     kubectl get pods ^
                     -n ${K8S_NAMESPACE}
 
                     echo.
-                    echo ===== Service Details =====
+                    echo ===== DEPLOYMENT STATUS =====
 
-                    kubectl describe service ^
-                    ecommerce-port-service ^
-                    -n ${K8S_NAMESPACE}
+                    kubectl rollout status ^
+                    deployment/${K8S_DEPLOYMENT} ^
+                    -n ${K8S_NAMESPACE} ^
+                    --timeout=5m
+
+                    echo.
+                    echo ===== APPLICATION DEPLOYMENT SUCCESSFUL =====
                 """
             }
         }
 
 
         // ========================================================
-        // 18. FINAL SUCCESS
+        // STAGE 18
+        // SUMMARY
         // ========================================================
 
         stage('18 - Deployment Summary') {
 
             steps {
 
-                echo "=============================================="
-                echo "DEPLOYMENT COMPLETED SUCCESSFULLY"
-                echo "=============================================="
+                echo """
+                ====================================================
+                    ECOMMERCE PORT DESIGN
+                    DEVOPS DEPLOYMENT COMPLETED
+                ====================================================
 
-                echo "Application      : ecommerce-port-design"
+                GitLab:
+                ${GITLAB_URL}
 
-                echo "Docker Image     : ${FULL_IMAGE}"
+                Branch:
+                ${GIT_BRANCH}
 
-                echo "AWS Region       : ${AWS_REGION}"
+                Docker Image:
+                ${FULL_IMAGE}
 
-                echo "EKS Cluster      : ${EKS_CLUSTER_NAME}"
+                AWS Region:
+                ${AWS_REGION}
 
-                echo "Kubernetes NS    : ${K8S_NAMESPACE}"
+                EKS Cluster:
+                ${EKS_CLUSTER_NAME}
 
-                echo "Deployment       : ${K8S_DEPLOYMENT}"
+                Kubernetes Namespace:
+                ${K8S_NAMESPACE}
 
-                echo "Build Number     : ${BUILD_NUMBER}"
+                Kubernetes Deployment:
+                ${K8S_DEPLOYMENT}
 
-                echo "Git Commit       : ${GIT_COMMIT}"
+                Jenkins Build:
+                ${BUILD_NUMBER}
 
-                echo "=============================================="
+                Status:
+                SUCCESS
+
+                ====================================================
+                """
             }
         }
     }
@@ -732,79 +835,59 @@ pipeline {
 
     post {
 
-
-        // --------------------------------------------------------
-        // SUCCESS
-        // --------------------------------------------------------
-
         success {
 
             echo """
-            ======================================================
-                    CI/CD PIPELINE SUCCESS
-            ======================================================
+            ====================================================
+                  PIPELINE SUCCESS
+            ====================================================
 
-            Project:
-              ecommerce-port-design
+            GitLab:
+            ${GITLAB_URL}
 
-            Build:
-              ${BUILD_NUMBER}
+            Branch:
+            ${GIT_BRANCH}
 
-            Docker Image:
-              ${FULL_IMAGE}
+            Docker:
+            ${FULL_IMAGE}
 
             Kubernetes:
-              ${K8S_NAMESPACE}
-
-            EKS:
-              ${EKS_CLUSTER_NAME}
+            ${K8S_DEPLOYMENT}
 
             Status:
-              SUCCESS
+            SUCCESS
 
-            ======================================================
+            ====================================================
             """
         }
 
-
-        // --------------------------------------------------------
-        // FAILURE
-        // --------------------------------------------------------
 
         failure {
 
             echo """
-            ======================================================
-                    CI/CD PIPELINE FAILED
-            ======================================================
+            ====================================================
+                  PIPELINE FAILED
+            ====================================================
 
             Project:
-              ecommerce-port-design
+            ecommerce-port-design
 
             Build:
-              ${BUILD_NUMBER}
+            ${BUILD_NUMBER}
 
-            Status:
-              FAILED
+            Check Jenkins Console Output.
 
-            Please check Jenkins Console Output.
-
-            ======================================================
+            ====================================================
             """
         }
 
 
-        // --------------------------------------------------------
-        // ALWAYS
-        // --------------------------------------------------------
-
         always {
 
-            echo "Pipeline execution completed."
+            echo "Cleaning Jenkins workspace Docker resources..."
 
-            // Remove local Docker image after build
             bat """
-                docker image rm ${FULL_IMAGE} || exit 0
+                docker rm -f ecommerce-test 2>NUL || exit 0
             """
         }
     }
