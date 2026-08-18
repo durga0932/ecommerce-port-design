@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: ecommerce-port-design
+  namespace: ecommerce
+
+spec:
+
+  replicas: 3
+
+  selector:
+    matchLabels:
+      app: ecommerce-port-design
+
+  template:
+
+    metadata:
+      labels:
+        app: ecommerce-port-design
+
+    spec:
+
+      containers:
+
+        - name: ecommerce-port-design
+
+          image: ecommerce-port-design:1.0
+
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 80
+
+          resources:
+
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+
+          readinessProbe:
+
+            httpGet:
+              path: /health
+              port: 80
+
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+
+            httpGet:
+              path: /health
+              port: 80
+
+            initialDelaySeconds: 15
+            periodSeconds: 20
