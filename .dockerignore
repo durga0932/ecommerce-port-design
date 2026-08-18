@@ -1,0 +1,14 @@
+.git
+.gitignore
+.gitlab
+Jenkinsfile
+
+terraform/.terraform
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/tfplan
+
+node_modules
+npm-debug.log
+
+README.md
