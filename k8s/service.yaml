@@ -1,20 +1,38 @@
-apiVersion: v1
-kind: Service
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
 
 metadata:
-  name: ecommerce-port-service
+  name: ecommerce-port-hpa
   namespace: ecommerce
 
 spec:
 
-  type: ClusterIP
+  scaleTargetRef:
 
-  selector:
-    app: ecommerce-port-design
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ecommerce-port-design
 
-  ports:
+  minReplicas: 2
 
-    - name: http
-      protocol: TCP
-      port: 80
-      targetPort: 80
+  maxReplicas: 5
+
+  behavior:
+
+    scaleUp:
+      stabilizationWindowSeconds: 60
+
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+  metrics:
+
+    - type: Resource
+
+      resource:
+
+        name: cpu
+
+        target:
+          type: Utilization
+          averageUtilization: 70
