@@ -1,4 +1,4 @@
----
+
 - name: E-Commerce DevOps Environment Validation
 
   hosts: local
