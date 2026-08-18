@@ -1,0 +1,30 @@
+---
+- name: E-Commerce DevOps Environment Validation
+
+  hosts: local
+
+  gather_facts: true
+
+  tasks:
+
+    - name: Display operating system
+      debug:
+        msg: "Running on {{ ansible_distribution }}"
+
+    - name: Check Docker
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Display Docker version
+      debug:
+        var: docker_version.stdout
+
+    - name: Check Kubernetes
+      command: kubectl version --client
+      register: kubectl_version
+      changed_when: false
+
+    - name: Display Kubernetes version
+      debug:
+        var: kubectl_version.stdout
