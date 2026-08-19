@@ -50,7 +50,7 @@ pipeline {
     parameters {
 
         string(
-            name: 'AWS_KEYPAIR_NAME',
+            name: 'ecommerce-devops-key',
             defaultValue: 'ecommerce-devops-key',
             description: 'Existing AWS EC2 Key Pair name'
         )
@@ -96,7 +96,7 @@ pipeline {
         // ------------------------------------------------------
 
         DOCKER_IMAGE =
-            'YOUR_DOCKERHUB_USERNAME/ecommerce-port-design'
+            'shivsoftapp/ecommerce-port-design'
 
 
         // ------------------------------------------------------
