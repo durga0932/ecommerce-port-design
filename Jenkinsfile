@@ -98,10 +98,10 @@ pipeline {
             'shivsoftapp/ecommerce-port-design'
 
         IMAGE_TAG =
-            "${BUILD_NUMBER}"
+            "539"
 
         FULL_IMAGE =
-            "shivsoftapp/ecommerce-port-design:${BUILD_NUMBER}"
+            "shivsoftapp/ecommerce-port-design:539"
 
 
         // ------------------------------------------------------
