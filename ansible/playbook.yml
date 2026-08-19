@@ -1,22 +1,17 @@
+- name: Configure AWS EC2 Server
 
-- name: Configure AWS EC2 Jenkins Agent
-
-  hosts: all
+  hosts: servers
 
   become: true
 
-  vars:
-
-    jenkins_user: jenkins
-
   tasks:
 
-    - name: Update apt cache
+    - name: Update apt
       apt:
         update_cache: yes
-        cache_valid_time: 3600
 
-    - name: Install basic packages
+
+    - name: Install common packages
       apt:
         name:
           - git
@@ -24,28 +19,9 @@
           - wget
           - unzip
           - ca-certificates
-          - gnupg
-          - apt-transport-https
           - openjdk-17-jre
         state: present
 
-
-    # =========================================================
-    # JENKINS USER
-    # =========================================================
-
-    - name: Create Jenkins user
-      user:
-        name: "{{ jenkins_user }}"
-        shell: /bin/bash
-        create_home: yes
-        groups: sudo
-        append: yes
-
-
-    # =========================================================
-    # DOCKER
-    # =========================================================
 
     - name: Install Docker
       apt:
@@ -53,81 +29,71 @@
           - docker.io
         state: present
 
-    - name: Enable Docker
+
+    - name: Start Docker
       systemd:
         name: docker
-        enabled: yes
         state: started
+        enabled: true
 
-    - name: Add Jenkins user to Docker group
+
+    - name: Create devops user
       user:
-        name: "{{ jenkins_user }}"
+        name: devops
+        shell: /bin/bash
+        create_home: true
+
+
+    - name: Add devops to Docker group
+      user:
+        name: devops
         groups: docker
-        append: yes
+        append: true
 
 
-    # =========================================================
-    # GIT
-    # =========================================================
+    - name: Install kubectl
+      shell: |
+        KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+        curl -L \
+        https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
+        -o /usr/local/bin/kubectl
+        chmod +x /usr/local/bin/kubectl
+      args:
+        creates: /usr/local/bin/kubectl
 
-    - name: Verify Git
-      command: git --version
-      register: git_version
-      changed_when: false
+
+    - name: Install AWS CLI
+      shell: |
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" \
+        -o /tmp/awscliv2.zip
+
+        unzip -o /tmp/awscliv2.zip -d /tmp
+
+        /tmp/aws/install
+      args:
+        creates: /usr/local/bin/aws
 
 
-    # =========================================================
-    # DOCKER
-    # =========================================================
+    - name: Install Helm
+      shell: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+
+    - name: Install Trivy
+      shell: |
+        curl -sfL \
+        https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+        | sh -s -- -b /usr/local/bin
+      args:
+        creates: /usr/local/bin/trivy
+
 
     - name: Verify Docker
       command: docker --version
       register: docker_version
       changed_when: false
-
-
-    # =========================================================
-    # JAVA
-    # =========================================================
-
-    - name: Verify Java
-      command: java -version
-      register: java_version
-      changed_when: false
-      failed_when: false
-
-
-    # =========================================================
-    # JENKINS DIRECTORIES
-    # =========================================================
-
-    - name: Create Jenkins workspace
-      file:
-        path: /home/jenkins
-        state: directory
-        owner: "{{ jenkins_user }}"
-        group: "{{ jenkins_user }}"
-        mode: "0755"
-
-
-    - name: Create Jenkins workspace directory
-      file:
-        path: /home/jenkins/workspace
-        state: directory
-        owner: "{{ jenkins_user }}"
-        group: "{{ jenkins_user }}"
-        mode: "0755"
-
-
-    # =========================================================
-    # KUBECTL
-    # =========================================================
-
-    - name: Download kubectl
-      get_url:
-        url: "https://dl.k8s.io/release/v1.33.0/bin/linux/amd64/kubectl"
-        dest: /usr/local/bin/kubectl
-        mode: "0755"
 
 
     - name: Verify kubectl
@@ -136,62 +102,23 @@
       changed_when: false
 
 
-    # =========================================================
-    # AWS CLI
-    # =========================================================
-
-    - name: Download AWS CLI
-      get_url:
-        url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
-        dest: /tmp/awscliv2.zip
-
-
-    - name: Install unzip
-      apt:
-        name: unzip
-        state: present
-
-
-    - name: Extract AWS CLI
-      unarchive:
-        src: /tmp/awscliv2.zip
-        dest: /tmp
-        remote_src: yes
-
-
-    - name: Install AWS CLI
-      command: /tmp/aws/install
-      args:
-        creates: /usr/local/bin/aws
-
-
-    - name: Verify AWS CLI
-      command: aws --version
-      register: aws_version
+    - name: Verify Helm
+      command: helm version
+      register: helm_version
       changed_when: false
 
 
-    # =========================================================
-    # JENKINS AGENT DIRECTORY
-    # =========================================================
-
-    - name: Set Jenkins directory ownership
-      file:
-        path: /home/jenkins
-        owner: "{{ jenkins_user }}"
-        group: "{{ jenkins_user }}"
-        recurse: yes
+    - name: Verify Trivy
+      command: trivy --version
+      register: trivy_version
+      changed_when: false
 
 
-    # =========================================================
-    # SUMMARY
-    # =========================================================
-
-    - name: Show installed tools
+    - name: Configuration completed
       debug:
         msg:
-          - "Jenkins Agent configuration completed"
-          - "Docker: {{ docker_version.stdout }}"
-          - "Git: {{ git_version.stdout }}"
-          - "kubectl: {{ kubectl_version.stdout }}"
-          - "AWS CLI: {{ aws_version.stdout }}"
+          - "EC2 configuration completed"
+          - "{{ docker_version.stdout }}"
+          - "{{ kubectl_version.stdout }}"
+          - "{{ helm_version.stdout }}"
+          - "{{ trivy_version.stdout }}"
