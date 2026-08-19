@@ -1,12 +1,77 @@
 pipeline {
 
-    agent any
+    /*
+     * ============================================================
+     * ECOMMERCE PORT DESIGN
+     * COMPLETE DEVOPS CI/CD PIPELINE
+     *
+     * GitLab
+     *   ↓
+     * Jenkins Windows
+     *   ↓
+     * Terraform
+     *   ↓
+     * AWS VPC + EC2 + EKS
+     *   ↓
+     * Ansible → EC2 Configuration
+     *   ↓
+     * SonarQube
+     *   ↓
+     * Docker Build
+     *   ↓
+     * Trivy
+     *   ↓
+     * Docker Hub
+     *   ↓
+     * EKS
+     *   ↓
+     * Kubernetes
+     *   ↓
+     * Helm
+     *   ↓
+     * Prometheus + Grafana + Alertmanager
+     *
+     * Jenkins Controller:
+     * Windows
+     *
+     * Ansible:
+     * WSL2 → Ubuntu
+     * ============================================================
+     */
+
+
+    agent none
+
+
+    // ==========================================================
+    // PARAMETERS
+    // ==========================================================
+
+    parameters {
+
+        string(
+            name: 'AWS_KEYPAIR_NAME',
+            defaultValue: 'ecommerce-devops-key',
+            description: 'Existing AWS EC2 Key Pair name'
+        )
+
+        string(
+            name: 'AWS_REGION',
+            defaultValue: 'ap-south-1',
+            description: 'AWS Region'
+        )
+    }
+
+
+    // ==========================================================
+    // ENVIRONMENT
+    // ==========================================================
 
     environment {
 
-        // =====================================================
-        // GITLAB
-        // =====================================================
+        // ------------------------------------------------------
+        // GitLab
+        // ------------------------------------------------------
 
         GITLAB_REPO =
             'https://gitlab.com/SOFTAPP-TECHNOLOGIES/ecommerce-port-design.git'
@@ -15,34 +80,28 @@ pipeline {
             'main'
 
 
-        // =====================================================
-        // DOCKER HUB
-        // =====================================================
-
-        DOCKER_IMAGE =
-            'shivsoftapp/ecommerce-port-design'
-
-        IMAGE_TAG =
-            "555"
-
-        FULL_IMAGE =
-            "${DOCKER_IMAGE}:${IMAGE_TAG}"
-
-
-        // =====================================================
+        // ------------------------------------------------------
         // AWS
-        // =====================================================
+        // ------------------------------------------------------
 
-        AWS_REGION =
-            'ap-south-1'
+        AWS_DEFAULT_REGION =
+            "${params.AWS_REGION}"
 
-        EKS_CLUSTER =
+        EKS_CLUSTER_NAME =
             'ecommerce-eks'
 
 
-        // =====================================================
-        // KUBERNETES
-        // =====================================================
+        // ------------------------------------------------------
+        // Docker
+        // ------------------------------------------------------
+
+        DOCKER_IMAGE =
+            'YOUR_DOCKERHUB_USERNAME/ecommerce-port-design'
+
+
+        // ------------------------------------------------------
+        // Kubernetes
+        // ------------------------------------------------------
 
         K8S_NAMESPACE =
             'ecommerce'
@@ -54,22 +113,38 @@ pipeline {
             'ecommerce-port-design'
 
 
-        // =====================================================
-        // SONARQUBE
-        // =====================================================
+        // ------------------------------------------------------
+        // Jenkins Credentials
+        // ------------------------------------------------------
 
-        SONAR_PROJECT =
-            'ecommerce-port-design'
+        GITLAB_CREDENTIALS =
+            'gitlab-credentials'
+
+        AWS_CREDENTIALS =
+            'aws-credentials'
+
+        DOCKERHUB_CREDENTIALS =
+            'dockerhub-credentials'
+
+        SONARQUBE_CREDENTIALS =
+            'sonarqube-token'
     }
 
 
-    // =========================================================
+    // ==========================================================
     // OPTIONS
-    // =========================================================
+    // ==========================================================
 
     options {
 
         disableConcurrentBuilds()
+
+        timestamps()
+
+        timeout(
+            time: 120,
+            unit: 'MINUTES'
+        )
 
         buildDiscarder(
             logRotator(
@@ -77,56 +152,48 @@ pipeline {
             )
         )
 
-        timestamps()
-
-        timeout(
-            time: 60,
-            unit: 'MINUTES'
-        )
+        skipDefaultCheckout(true)
     }
 
 
-    // =========================================================
+    // ==========================================================
     // STAGES
-    // =========================================================
+    // ==========================================================
 
     stages {
 
 
-        // =====================================================
-        // 01 GITLAB CHECKOUT
-        // =====================================================
+        // ======================================================
+        // 01 - CHECKOUT
+        // ======================================================
 
         stage('01 - GitLab Checkout') {
 
+            agent {
+                label 'built-in'
+            }
+
             steps {
 
-                echo "=========================================="
-                echo "GITLAB CHECKOUT"
-                echo "=========================================="
+                echo '============================================'
+                echo 'CHECKING OUT SOURCE CODE FROM GITLAB'
+                echo '============================================'
 
-                echo "Repository: ${GITLAB_REPO}"
-                echo "Branch: ${GITLAB_BRANCH}"
 
                 git(
                     url: "${GITLAB_REPO}",
                     branch: "${GITLAB_BRANCH}",
-                    credentialsId: 'gitlab-credentials'
+                    credentialsId: "${GITLAB_CREDENTIALS}"
                 )
+
 
                 bat '''
                     echo.
-                    echo ===== CURRENT BRANCH =====
+                    echo ===== GIT INFORMATION =====
 
                     git branch
 
-                    echo.
-                    echo ===== LATEST COMMIT =====
-
                     git log -1 --oneline
-
-                    echo.
-                    echo ===== REMOTE =====
 
                     git remote -v
                 '''
@@ -134,121 +201,318 @@ pipeline {
         }
 
 
-        // =====================================================
-        // 02 PROJECT VALIDATION
-        // =====================================================
+        // ======================================================
+        // 02 - VALIDATE TERRAFORM
+        // ======================================================
 
-        stage('02 - Project Validation') {
+        stage('02 - Terraform Validate') {
 
-            steps {
-
-                echo "=========================================="
-                echo "PROJECT VALIDATION"
-                echo "=========================================="
-
-                bat '''
-                    echo.
-                    echo ===== PROJECT STRUCTURE =====
-
-                    dir
-
-                    echo.
-                    echo ===== SRC =====
-
-                    dir src
-
-                    echo.
-                    echo ===== HTML =====
-
-                    dir src\\html
-
-                    echo.
-                    echo ===== ASSETS =====
-
-                    dir src\\assets
-
-                    echo.
-                    echo ===== CHECKING INDEX =====
-
-                    if not exist src\\html\\index.html (
-                        echo ERROR: index.html not found
-                        exit /b 1
-                    )
-
-                    echo index.html OK
-
-                    echo.
-                    echo ===== CHECKING DOCKERFILE =====
-
-                    if not exist Dockerfile (
-                        echo ERROR: Dockerfile not found
-                        exit /b 1
-                    )
-
-                    echo Dockerfile OK
-
-                    echo.
-                    echo ===== CHECKING NGINX =====
-
-                    if not exist docker\\nginx.conf (
-                        echo ERROR: nginx.conf not found
-                        exit /b 1
-                    )
-
-                    echo nginx.conf OK
-
-                    echo.
-                    echo ===== CHECKING KUBERNETES =====
-
-                    if not exist k8s\\namespace.yaml exit /b 1
-                    if not exist k8s\\deployment.yaml exit /b 1
-                    if not exist k8s\\service.yaml exit /b 1
-                    if not exist k8s\\hpa.yaml exit /b 1
-                    if not exist k8s\\ingress.yaml exit /b 1
-
-                    echo Kubernetes files OK
-                '''
+            agent {
+                label 'built-in'
             }
-        }
-
-
-        // =====================================================
-        // 03 SONARQUBE
-        // =====================================================
-
-        stage('03 - SonarQube Analysis') {
 
             steps {
 
-                echo "=========================================="
-                echo "SONARQUBE ANALYSIS"
-                echo "=========================================="
+                dir('terraform') {
 
-                withSonarQubeEnv('SonarQube') {
+                    bat '''
+                        terraform version
 
-                    bat """
-                        sonar-scanner ^
-                        -Dsonar.projectKey=${SONAR_PROJECT} ^
-                        -Dsonar.projectName=ecommerce-port-design ^
-                        -Dsonar.sources=src ^
-                        -Dsonar.sourceEncoding=UTF-8
-                    """
+                        terraform init -input=false
+
+                        terraform validate
+                    '''
                 }
             }
         }
 
 
-        // =====================================================
-        // 04 QUALITY GATE
-        // =====================================================
+        // ======================================================
+        // 03 - TERRAFORM PLAN
+        // ======================================================
 
-        stage('04 - SonarQube Quality Gate') {
+        stage('03 - Terraform Plan') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
-                echo "=========================================="
-                echo "SONARQUBE QUALITY GATE"
-                echo "=========================================="
+                withCredentials([
+
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding',
+
+                        credentialsId: "${AWS_CREDENTIALS}",
+
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
+
+                ]) {
+
+                    dir('terraform') {
+
+                        bat '''
+
+                            echo.
+                            echo ===== AWS IDENTITY =====
+
+                            aws sts get-caller-identity
+
+
+                            echo.
+                            echo ===== TERRAFORM PLAN =====
+
+                            terraform plan ^
+                              -input=false ^
+                              -var="key_name=%AWS_KEYPAIR_NAME%" ^
+                              -var="admin_cidr=0.0.0.0/0" ^
+                              -out=tfplan
+                        '''
+                    }
+                }
+            }
+        }
+
+
+        // ======================================================
+        // 04 - TERRAFORM APPLY
+        // ======================================================
+
+        stage('04 - Terraform Apply') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                withCredentials([
+
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding',
+
+                        credentialsId: "${AWS_CREDENTIALS}",
+
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
+
+                ]) {
+
+                    dir('terraform') {
+
+                        bat '''
+
+                            echo.
+                            echo ===== TERRAFORM APPLY =====
+
+                            terraform apply ^
+                              -input=false ^
+                              -auto-approve ^
+                              tfplan
+                        '''
+                    }
+                }
+            }
+        }
+
+
+        // ======================================================
+        // 05 - TERRAFORM OUTPUT
+        // ======================================================
+
+        stage('05 - Get AWS Outputs') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                withCredentials([
+
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding',
+
+                        credentialsId: "${AWS_CREDENTIALS}",
+
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
+
+                ]) {
+
+                    dir('terraform') {
+
+                        bat '''
+
+                            echo.
+                            echo ===== EC2 IP =====
+
+                            terraform output ec2_public_ip
+
+
+                            echo.
+                            echo ===== EKS CLUSTER =====
+
+                            terraform output eks_cluster_name
+
+
+                            echo.
+                            echo ===== EKS ENDPOINT =====
+
+                            terraform output eks_cluster_endpoint
+                        '''
+                    }
+                }
+            }
+        }
+
+
+        // ======================================================
+        // 06 - GENERATE ANSIBLE INVENTORY
+        // ======================================================
+
+        stage('06 - Generate Ansible Inventory') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                bat '''
+
+                    echo.
+                    echo ===== GET EC2 IP =====
+
+                    cd terraform
+
+                    for /f %%i in ('terraform output -raw ec2_public_ip') do set EC2_IP=%%i
+
+                    cd ..
+
+                    echo EC2 IP:
+                    echo %EC2_IP%
+
+
+                    echo.
+                    echo ===== GENERATING INVENTORY =====
+
+
+                    powershell -NoProfile -Command ^
+                    "$content = '[servers]`nserver ansible_host=%EC2_IP% ansible_user=ubuntu'; ^
+                    Set-Content -Path 'ansible\\inventory.ini' -Value $content"
+                '''
+            }
+        }
+
+
+        // ======================================================
+        // 07 - ANSIBLE CONFIGURATION
+        // ======================================================
+
+        stage('07 - Ansible Configuration') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                echo '''
+                ============================================
+                ANSIBLE
+                Windows Jenkins
+                     ↓
+                  WSL2 Ubuntu
+                     ↓
+                  Ansible
+                     ↓
+                   AWS EC2
+                ============================================
+                '''
+
+
+                bat '''
+
+                    echo.
+                    echo ===== CHECK ANSIBLE =====
+
+                    wsl.exe -d Ubuntu -- bash -lc "ansible --version"
+
+
+                    echo.
+                    echo ===== RUN ANSIBLE =====
+
+                    wsl.exe -d Ubuntu -- bash -lc ^
+                    "cd /mnt/c/ProgramData/Jenkins/.jenkins/workspace/ecommerce-port-design && ^
+                    ansible-playbook ^
+                    -i ansible/inventory.ini ^
+                    ansible/playbook.yml"
+                '''
+            }
+        }
+
+
+        // ======================================================
+        // 08 - SONARQUBE
+        // ======================================================
+
+        stage('08 - SonarQube Analysis') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                echo '============================================'
+                echo 'SONARQUBE CODE ANALYSIS'
+                echo '============================================'
+
+
+                script {
+
+                    def scannerHome =
+                        tool 'SonarScanner'
+
+
+                    withSonarQubeEnv('SonarQube') {
+
+                        bat """
+
+                            "${scannerHome}\\bin\\sonar-scanner.bat"
+
+                        """
+                    }
+                }
+            }
+        }
+
+
+        // ======================================================
+        // 09 - SONARQUBE QUALITY GATE
+        // ======================================================
+
+        stage('09 - SonarQube Quality Gate') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                echo '============================================'
+                echo 'WAITING FOR SONARQUBE QUALITY GATE'
+                echo '============================================'
+
 
                 timeout(
                     time: 10,
@@ -263,469 +527,507 @@ pipeline {
         }
 
 
-        // =====================================================
-        // 05 DOCKER BUILD
-        // =====================================================
+        // ======================================================
+        // 10 - DOCKER BUILD
+        // ======================================================
 
-        stage('05 - Docker Build') {
+        stage('10 - Docker Build') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
-                echo "=========================================="
-                echo "DOCKER BUILD"
-                echo "=========================================="
+                echo '============================================'
+                echo 'BUILDING DOCKER IMAGE'
+                echo '============================================'
+
 
                 bat """
-                    docker --version
+
+                    docker version
 
                     docker build ^
-                    --pull ^
-                    -t ${FULL_IMAGE} ^
-                    .
-                """
+                      --pull ^
+                      -t ${DOCKER_IMAGE}:${BUILD_NUMBER} ^
+                      -t ${DOCKER_IMAGE}:latest ^
+                      .
 
-                bat """
-                    docker images ${DOCKER_IMAGE}
                 """
             }
         }
 
 
-        // =====================================================
-        // 06 DOCKER CONTAINER TEST
-        // =====================================================
+        // ======================================================
+        // 11 - DOCKER TEST
+        // ======================================================
 
-        stage('06 - Docker Test') {
+        stage('11 - Docker Container Test') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
-                echo "=========================================="
-                echo "DOCKER CONTAINER TEST"
-                echo "=========================================="
-
                 bat """
-                    docker run -d ^
-                    --name ecommerce-test ^
-                    -p 8090:80 ^
-                    ${FULL_IMAGE}
 
-                    timeout /t 5 /nobreak
+                    echo ===== START TEST CONTAINER =====
+
+                    docker rm -f ecommerce-test 2>NUL || exit 0
+
+
+                    docker run -d ^
+                      --name ecommerce-test ^
+                      -p 8090:80 ^
+                      ${DOCKER_IMAGE}:${BUILD_NUMBER}
+
+
+                    timeout /t 8 /nobreak
+
+
+                    echo ===== HEALTH CHECK =====
 
                     curl.exe -f http://localhost:8090/health
 
-                    if %ERRORLEVEL% NEQ 0 (
-                        echo Health check failed
-                        docker logs ecommerce-test
-                        docker rm -f ecommerce-test
-                        exit /b 1
-                    )
 
-                    echo.
-                    echo APPLICATION HEALTH CHECK PASSED
+                    echo ===== STOP TEST CONTAINER =====
 
                     docker rm -f ecommerce-test
+
                 """
             }
         }
 
 
-        // =====================================================
-        // 07 TRIVY
-        // =====================================================
+        // ======================================================
+        // 12 - TRIVY
+        // ======================================================
 
-        stage('07 - Trivy Security Scan') {
+        stage('12 - Trivy Security Scan') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
-                echo "=========================================="
-                echo "TRIVY SECURITY SCAN"
-                echo "=========================================="
+                echo '============================================'
+                echo 'TRIVY SECURITY SCAN'
+                echo '============================================'
+
 
                 bat """
+
                     trivy image ^
-                    --severity HIGH,CRITICAL ^
-                    --ignore-unfixed ^
-                    --exit-code 1 ^
-                    ${FULL_IMAGE}
+                      --severity HIGH,CRITICAL ^
+                      --ignore-unfixed ^
+                      --exit-code 1 ^
+                      ${DOCKER_IMAGE}:${BUILD_NUMBER}
+
                 """
             }
         }
 
 
-        // =====================================================
-        // 08 DOCKER HUB
-        // =====================================================
+        // ======================================================
+        // 13 - DOCKER HUB
+        // ======================================================
 
-        stage('08 - Docker Hub Push') {
+        stage('13 - Docker Hub Push') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
-                echo "=========================================="
-                echo "DOCKER HUB PUSH"
-                echo "=========================================="
+                echo '============================================'
+                echo 'PUSHING IMAGE TO DOCKER HUB'
+                echo '============================================'
+
 
                 withCredentials([
 
                     usernamePassword(
-                        credentialsId: 'dockerhub-credentials',
+                        credentialsId: "${DOCKERHUB_CREDENTIALS}",
+
                         usernameVariable: 'DOCKER_USERNAME',
+
                         passwordVariable: 'DOCKER_PASSWORD'
                     )
 
                 ]) {
 
                     bat """
-                        docker login ^
-                        -u %DOCKER_USERNAME% ^
-                        -p %DOCKER_PASSWORD%
 
-                        docker push ${FULL_IMAGE}
+                        docker login ^
+                          -u %DOCKER_USERNAME% ^
+                          -p %DOCKER_PASSWORD%
+
+
+                        docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+
+
+                        docker push ${DOCKER_IMAGE}:latest
+
 
                         docker logout
+
                     """
                 }
             }
         }
 
 
-        // =====================================================
-        // 09 TERRAFORM INIT
-        // =====================================================
+        // ======================================================
+        // 14 - AWS EKS LOGIN
+        // ======================================================
 
-        stage('09 - Terraform Init') {
+        stage('14 - Connect to AWS EKS') {
 
-            steps {
-
-                dir('terraform') {
-
-                    bat '''
-                        terraform version
-
-                        terraform init -input=false
-                    '''
-                }
+            agent {
+                label 'built-in'
             }
-        }
-
-
-        // =====================================================
-        // 10 TERRAFORM VALIDATE
-        // =====================================================
-
-        stage('10 - Terraform Validate') {
-
-            steps {
-
-                dir('terraform') {
-
-                    bat '''
-                        terraform validate
-                    '''
-                }
-            }
-        }
-
-
-        // =====================================================
-        // 11 TERRAFORM PLAN
-        // =====================================================
-
-        stage('11 - Terraform Plan') {
-
-            steps {
-
-                dir('terraform') {
-
-                    bat '''
-                        terraform plan ^
-                        -input=false ^
-                        -out=tfplan
-                    '''
-                }
-            }
-        }
-
-
-        // =====================================================
-        // 12 TERRAFORM APPLY
-        // =====================================================
-
-        stage('12 - Terraform Apply') {
 
             steps {
 
                 withCredentials([
 
                     [
-                        $class:
-                        'AmazonWebServicesCredentialsBinding',
+                        $class: 'AmazonWebServicesCredentialsBinding',
 
-                        credentialsId:
-                        'aws-credentials',
+                        credentialsId: "${AWS_CREDENTIALS}",
 
-                        accessKeyVariable:
-                        'AWS_ACCESS_KEY_ID',
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
 
-                        secretKeyVariable:
-                        'AWS_SECRET_ACCESS_KEY'
-                    ]
-
-                ]) {
-
-                    dir('terraform') {
-
-                        bat '''
-                            terraform apply ^
-                            -input=false ^
-                            -auto-approve ^
-                            tfplan
-                        '''
-                    }
-                }
-            }
-        }
-
-
-        // =====================================================
-        // 13 AWS EKS
-        // =====================================================
-
-        stage('13 - AWS EKS Connection') {
-
-            steps {
-
-                withCredentials([
-
-                    [
-                        $class:
-                        'AmazonWebServicesCredentialsBinding',
-
-                        credentialsId:
-                        'aws-credentials',
-
-                        accessKeyVariable:
-                        'AWS_ACCESS_KEY_ID',
-
-                        secretKeyVariable:
-                        'AWS_SECRET_ACCESS_KEY'
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]
 
                 ]) {
 
                     bat """
+
+                        echo ===== AWS IDENTITY =====
+
                         aws sts get-caller-identity
 
+
+                        echo ===== UPDATE KUBECONFIG =====
+
                         aws eks update-kubeconfig ^
-                        --region ${AWS_REGION} ^
-                        --name ${EKS_CLUSTER}
+                          --region ${AWS_DEFAULT_REGION} ^
+                          --name ${EKS_CLUSTER_NAME}
+
+
+                        echo ===== EKS NODES =====
 
                         kubectl get nodes
+
                     """
                 }
             }
         }
 
 
-        // =====================================================
-        // 14 KUBERNETES APPLY
-        // =====================================================
+        // ======================================================
+        // 15 - METRICS SERVER
+        // ======================================================
 
-        stage('14 - Kubernetes Apply') {
+        stage('15 - Metrics Server') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                bat '''
+
+                    helm repo add metrics-server ^
+                    https://kubernetes-sigs.github.io/metrics-server/
+
+
+                    helm repo update
+
+
+                    helm upgrade --install metrics-server ^
+                    metrics-server/metrics-server ^
+                    --namespace kube-system ^
+                    --set args[0]=--kubelet-insecure-tls
+
+                '''
+            }
+        }
+
+
+        // ======================================================
+        // 16 - KUBERNETES NAMESPACE
+        // ======================================================
+
+        stage('16 - Kubernetes Namespace') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                bat '''
+
+                    kubectl apply ^
+                    -f k8s/namespace.yaml
+
+                '''
+            }
+        }
+
+
+        // ======================================================
+        // 17 - KUBERNETES DEPLOYMENT
+        // ======================================================
+
+        stage('17 - Kubernetes Deployment') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
                 bat """
-                    kubectl apply ^
-                    -f k8s\\namespace.yaml
 
                     kubectl apply ^
-                    -f k8s\\deployment.yaml ^
-                    -n ${K8S_NAMESPACE}
+                    -f k8s/deployment.yaml
+
 
                     kubectl apply ^
-                    -f k8s\\service.yaml ^
-                    -n ${K8S_NAMESPACE}
+                    -f k8s/service.yaml
+
 
                     kubectl apply ^
-                    -f k8s\\hpa.yaml ^
-                    -n ${K8S_NAMESPACE}
+                    -f k8s/hpa.yaml
+
 
                     kubectl apply ^
-                    -f k8s\\ingress.yaml ^
-                    -n ${K8S_NAMESPACE}
+                    -f k8s/ingress.yaml
+
                 """
             }
         }
 
 
-        // =====================================================
-        // 15 UPDATE IMAGE
-        // =====================================================
+        // ======================================================
+        // 18 - UPDATE IMAGE
+        // ======================================================
 
-        stage('15 - Kubernetes Rolling Update') {
+        stage('18 - Kubernetes Rolling Update') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
                 bat """
+
+                    echo ===== UPDATING APPLICATION IMAGE =====
+
+
                     kubectl set image ^
-                    deployment/${K8S_DEPLOYMENT} ^
-                    ${K8S_CONTAINER}=${FULL_IMAGE} ^
-                    -n ${K8S_NAMESPACE}
+                      deployment/${K8S_DEPLOYMENT} ^
+                      ${K8S_CONTAINER}=${DOCKER_IMAGE}:${BUILD_NUMBER} ^
+                      --namespace ${K8S_NAMESPACE}
+
+
+                    echo ===== WAITING FOR ROLLOUT =====
+
 
                     kubectl rollout status ^
-                    deployment/${K8S_DEPLOYMENT} ^
-                    -n ${K8S_NAMESPACE} ^
-                    --timeout=5m
+                      deployment/${K8S_DEPLOYMENT} ^
+                      --namespace ${K8S_NAMESPACE} ^
+                      --timeout=5m
+
                 """
             }
         }
 
 
-        // =====================================================
-        // 16 VERIFY
-        // =====================================================
+        // ======================================================
+        // 19 - PROMETHEUS GRAFANA ALERTMANAGER
+        // ======================================================
 
-        stage('16 - Kubernetes Verification') {
+        stage('19 - Monitoring Stack') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                echo '''
+                ============================================
+                KUBERNETES MONITORING
+
+                Prometheus
+                Grafana
+                Alertmanager
+                ============================================
+                '''
+
+
+                bat '''
+
+                    helm repo add prometheus-community ^
+                    https://prometheus-community.github.io/helm-charts
+
+
+                    helm repo update
+
+
+                    helm upgrade --install monitoring ^
+                    prometheus-community/kube-prometheus-stack ^
+                    --namespace monitoring ^
+                    --create-namespace ^
+                    --set grafana.service.type=ClusterIP ^
+                    --set prometheus.prometheusSpec.retention=7d ^
+                    --set alertmanager.enabled=true
+
+                '''
+            }
+        }
+
+
+        // ======================================================
+        // 20 - FINAL VERIFICATION
+        // ======================================================
+
+        stage('20 - Final Verification') {
+
+            agent {
+                label 'built-in'
+            }
 
             steps {
 
                 bat """
+
                     echo.
-                    echo ===== PODS =====
+                    echo ============================================
+                    echo APPLICATION PODS
+                    echo ============================================
 
                     kubectl get pods ^
-                    -n ${K8S_NAMESPACE} ^
-                    -o wide
+                      --namespace ${K8S_NAMESPACE}
+
 
                     echo.
-                    echo ===== DEPLOYMENT =====
+                    echo ============================================
+                    echo SERVICES
+                    echo ============================================
 
-                    kubectl get deployment ^
-                    ${K8S_DEPLOYMENT} ^
-                    -n ${K8S_NAMESPACE}
+                    kubectl get services ^
+                      --namespace ${K8S_NAMESPACE}
 
-                    echo.
-                    echo ===== SERVICE =====
-
-                    kubectl get service ^
-                    -n ${K8S_NAMESPACE}
 
                     echo.
-                    echo ===== HPA =====
+                    echo ============================================
+                    echo HPA
+                    echo ============================================
 
                     kubectl get hpa ^
-                    -n ${K8S_NAMESPACE}
+                      --namespace ${K8S_NAMESPACE}
+
 
                     echo.
-                    echo ===== INGRESS =====
+                    echo ============================================
+                    echo INGRESS
+                    echo ============================================
 
                     kubectl get ingress ^
-                    -n ${K8S_NAMESPACE}
-                """
-            }
-        }
+                      --namespace ${K8S_NAMESPACE}
 
-
-        // =====================================================
-        // 17 FINAL ROLLOUT
-        // =====================================================
-
-        stage('17 - Final Health Verification') {
-
-            steps {
-
-                bat """
-                    kubectl rollout status ^
-                    deployment/${K8S_DEPLOYMENT} ^
-                    -n ${K8S_NAMESPACE} ^
-                    --timeout=5m
 
                     echo.
-                    echo ==========================================
-                    echo APPLICATION DEPLOYMENT SUCCESSFUL
-                    echo ==========================================
-                """
-            }
-        }
+                    echo ============================================
+                    echo MONITORING
+                    echo ============================================
+
+                    kubectl get pods ^
+                      --namespace monitoring
 
 
-        // =====================================================
-        // 18 SUMMARY
-        // =====================================================
+                    echo.
+                    echo ============================================
+                    echo PIPELINE COMPLETED
+                    echo ============================================
 
-        stage('18 - Deployment Summary') {
-
-            steps {
-
-                echo """
-                ==================================================
-
-                    ECOMMERCE PORT DESIGN
-                    COMPLETE DEVOPS PIPELINE
-
-                ==================================================
-
-                GitLab:
-                ${GITLAB_REPO}
-
-                Branch:
-                ${GITLAB_BRANCH}
-
-                Docker:
-                ${FULL_IMAGE}
-
-                AWS Region:
-                ${AWS_REGION}
-
-                EKS:
-                ${EKS_CLUSTER}
-
-                Namespace:
-                ${K8S_NAMESPACE}
-
-                Deployment:
-                ${K8S_DEPLOYMENT}
-
-                Jenkins Build:
-                ${BUILD_NUMBER}
-
-                STATUS:
-                SUCCESS
-
-                ==================================================
                 """
             }
         }
     }
 
 
-    // =========================================================
-    // POST
-    // =========================================================
+    // ==========================================================
+    // POST ACTIONS
+    // ==========================================================
 
     post {
 
         success {
 
-            echo "=========================================="
-            echo "CI/CD PIPELINE SUCCESS"
-            echo "=========================================="
+            echo '''
+            =============================================
+
+            CI/CD PIPELINE SUCCESS
+
+            GitLab
+              ↓
+            Terraform
+              ↓
+            Ansible
+              ↓
+            SonarQube
+              ↓
+            Docker
+              ↓
+            Trivy
+              ↓
+            Docker Hub
+              ↓
+            EKS
+              ↓
+            Kubernetes
+              ↓
+            Prometheus
+            Grafana
+            Alertmanager
+
+            =============================================
+            '''
         }
+
 
         failure {
 
-            echo "=========================================="
-            echo "CI/CD PIPELINE FAILED"
-            echo "=========================================="
+            echo '''
+            =============================================
 
-            echo "Check Jenkins Console Output."
+            CI/CD PIPELINE FAILED
+
+            Check Jenkins Console Output.
+
+            =============================================
+            '''
         }
+
 
         always {
 
-            bat """
-                docker rm -f ecommerce-test 2>NUL || exit 0
-            """
+            echo "Build Number: ${BUILD_NUMBER}"
+
+            echo "Job: ${JOB_NAME}"
         }
     }
 }
