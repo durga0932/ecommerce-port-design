@@ -3,7 +3,7 @@ pipeline {
     /*
      * ============================================================
      * ECOMMERCE PORT DESIGN
-     * COMPLETE DEVOPS CI/CD PIPELINE
+     * COMPLETE CI/CD PIPELINE
      *
      * GitLab
      *    ↓
@@ -11,13 +11,15 @@ pipeline {
      *    ↓
      * Terraform
      *    ↓
-     * AWS VPC + EC2 + EKS
+     * AWS VPC + EKS + ECR
      *    ↓
-     * Ansible
+     * Ansible - WSL2 Ubuntu
      *    ↓
      * SonarQube
      *    ↓
      * Docker Build
+     *    ↓
+     * Docker Test
      *    ↓
      * Trivy
      *    ↓
@@ -26,8 +28,6 @@ pipeline {
      * EKS
      *    ↓
      * Kubernetes
-     *    ↓
-     * Helm
      *    ↓
      * Prometheus
      * Grafana
@@ -52,15 +52,15 @@ pipeline {
     parameters {
 
         string(
-            name: 'AWS_KEYPAIR_NAME',
-            defaultValue: 'ecommerce-devops-key',
-            description: 'Existing AWS EC2 Key Pair name'
-        )
-
-        string(
             name: 'AWS_REGION',
             defaultValue: 'ap-south-1',
             description: 'AWS Region'
+        )
+
+        string(
+            name: 'EKS_CLUSTER_NAME',
+            defaultValue: 'ecommerce-eks',
+            description: 'EKS Cluster Name'
         )
     }
 
@@ -72,7 +72,7 @@ pipeline {
     environment {
 
         // ------------------------------------------------------
-        // GitLab
+        // GITLAB
         // ------------------------------------------------------
 
         GITLAB_REPO =
@@ -89,38 +89,23 @@ pipeline {
         AWS_DEFAULT_REGION =
             "${params.AWS_REGION}"
 
-        EKS_CLUSTER_NAME =
-            'ecommerce-eks'
-
 
         // ------------------------------------------------------
-        // Docker
+        // DOCKER
         // ------------------------------------------------------
 
         DOCKER_IMAGE =
             'shivsoftapp/ecommerce-port-design'
 
-        /*
-         * Jenkins BUILD_NUMBER automatically becomes image tag.
-         *
-         * Example:
-         *
-         * BUILD_NUMBER = 539
-         *
-         * Result:
-         *
-         * shivsoftapp/ecommerce-port-design:539
-         */
-
         IMAGE_TAG =
-            "539"
+            "${BUILD_NUMBER}"
 
         FULL_IMAGE =
-            "shivsoftapp/ecommerce-port-design:539"
+            "shivsoftapp/ecommerce-port-design:${BUILD_NUMBER}"
 
 
         // ------------------------------------------------------
-        // Kubernetes
+        // KUBERNETES
         // ------------------------------------------------------
 
         K8S_NAMESPACE =
@@ -134,7 +119,7 @@ pipeline {
 
 
         // ------------------------------------------------------
-        // Jenkins Credentials
+        // JENKINS CREDENTIALS
         // ------------------------------------------------------
 
         GITLAB_CREDENTIALS =
@@ -148,6 +133,9 @@ pipeline {
 
         SONARQUBE_CREDENTIALS =
             'sonarqube-token'
+
+        EC2_SSH_CREDENTIALS =
+            'ec2-ssh-key'
     }
 
 
@@ -161,6 +149,8 @@ pipeline {
 
         timestamps()
 
+        skipDefaultCheckout(true)
+
         timeout(
             time: 120,
             unit: 'MINUTES'
@@ -171,8 +161,6 @@ pipeline {
                 numToKeepStr: '10'
             )
         )
-
-        skipDefaultCheckout(true)
     }
 
 
@@ -196,29 +184,28 @@ pipeline {
             steps {
 
                 echo '============================================'
-
-                echo 'CHECKING OUT SOURCE CODE FROM GITLAB'
-
+                echo 'GITLAB CHECKOUT'
                 echo '============================================'
 
 
                 git(
                     url: "${GITLAB_REPO}",
-
                     branch: "${GITLAB_BRANCH}",
-
                     credentialsId: "${GITLAB_CREDENTIALS}"
                 )
 
 
                 bat '''
                     echo.
-                    echo ===== GIT INFORMATION =====
-
+                    echo ===== BRANCH =====
                     git branch
 
+                    echo.
+                    echo ===== COMMIT =====
                     git log -1 --oneline
 
+                    echo.
+                    echo ===== REMOTE =====
                     git remote -v
                 '''
             }
@@ -237,19 +224,17 @@ pipeline {
 
             steps {
 
-                echo '============================================'
+                echo "Jenkins Build Number : ${BUILD_NUMBER}"
 
-                echo "JENKINS BUILD NUMBER : ${BUILD_NUMBER}"
+                echo "Docker Image         : ${FULL_IMAGE}"
 
-                echo "DOCKER IMAGE          : ${FULL_IMAGE}"
-
-                echo '============================================'
+                echo "GitLab Branch        : ${GITLAB_BRANCH}"
             }
         }
 
 
         // ======================================================
-        // 03 - TERRAFORM VALIDATE
+        // 03 - TERRAFORM INIT + VALIDATE
         // ======================================================
 
         stage('03 - Terraform Validate') {
@@ -263,9 +248,22 @@ pipeline {
                 dir('terraform') {
 
                     bat '''
+                        echo ===== TERRAFORM VERSION =====
+
                         terraform version
 
+
+                        echo ===== TERRAFORM INIT =====
+
                         terraform init -input=false
+
+
+                        echo ===== TERRAFORM FORMAT =====
+
+                        terraform fmt -check
+
+
+                        echo ===== TERRAFORM VALIDATE =====
 
                         terraform validate
                     '''
@@ -308,19 +306,18 @@ pipeline {
 
                         bat '''
 
-                            echo.
-                            echo ===== AWS IDENTITY =====
+                            echo ===== AWS ACCOUNT =====
 
                             aws sts get-caller-identity
 
 
-                            echo.
                             echo ===== TERRAFORM PLAN =====
+
 
                             terraform plan ^
                               -input=false ^
-                              -var="key_name=%AWS_KEYPAIR_NAME%" ^
-                              -var="admin_cidr=0.0.0.0/0" ^
+                              -var="aws_region=%AWS_DEFAULT_REGION%" ^
+                              -var="cluster_name=%EKS_CLUSTER_NAME%" ^
                               -out=tfplan
 
                         '''
@@ -364,8 +361,8 @@ pipeline {
 
                         bat '''
 
-                            echo.
                             echo ===== TERRAFORM APPLY =====
+
 
                             terraform apply ^
                               -input=false ^
@@ -380,10 +377,10 @@ pipeline {
 
 
         // ======================================================
-        // 06 - AWS OUTPUT
+        // 06 - AWS OUTPUTS
         // ======================================================
 
-        stage('06 - Get AWS Outputs') {
+        stage('06 - AWS Infrastructure Output') {
 
             agent {
                 label 'built-in'
@@ -414,21 +411,51 @@ pipeline {
                         bat '''
 
                             echo.
-                            echo ===== EC2 PUBLIC IP =====
+                            echo ========================================
+                            echo AWS REGION
+                            echo ========================================
 
-                            terraform output ec2_public_ip
+                            terraform output aws_region
 
 
                             echo.
-                            echo ===== EKS CLUSTER =====
+                            echo ========================================
+                            echo VPC ID
+                            echo ========================================
+
+                            terraform output vpc_id
+
+
+                            echo.
+                            echo ========================================
+                            echo EKS CLUSTER
+                            echo ========================================
 
                             terraform output eks_cluster_name
 
 
                             echo.
-                            echo ===== EKS ENDPOINT =====
+                            echo ========================================
+                            echo EKS ENDPOINT
+                            echo ========================================
 
                             terraform output eks_cluster_endpoint
+
+
+                            echo.
+                            echo ========================================
+                            echo ECR REPOSITORY
+                            echo ========================================
+
+                            terraform output ecr_repository_url
+
+
+                            echo.
+                            echo ========================================
+                            echo MONITORING
+                            echo ========================================
+
+                            terraform output grafana_release_name
 
                         '''
                     }
@@ -438,10 +465,10 @@ pipeline {
 
 
         // ======================================================
-        // 07 - GENERATE ANSIBLE INVENTORY
+        // 07 - ANSIBLE
         // ======================================================
 
-        stage('07 - Generate Ansible Inventory') {
+        stage('07 - Ansible Configuration') {
 
             agent {
                 label 'built-in'
@@ -449,104 +476,142 @@ pipeline {
 
             steps {
 
-                bat '''
+                script {
 
-                    echo.
-                    echo ===== GET EC2 IP =====
-
-
-                    cd terraform
-
-
-                    for /f %%i in (
-                        'terraform output -raw ec2_public_ip'
-                    ) do set EC2_IP=%%i
+                    def ec2Output = bat(
+                        script: '''
+                            @echo off
+                            cd terraform
+                            terraform output -raw ec2_public_ip
+                        ''',
+                        returnStdout: true
+                    ).trim()
 
 
-                    cd ..
+                    if (
+                        ec2Output &&
+                        !ec2Output.toLowerCase().contains('warning') &&
+                        !ec2Output.toLowerCase().contains('no output')
+                    ) {
+
+                        echo '============================================'
+                        echo 'EC2 FOUND'
+                        echo 'STARTING ANSIBLE'
+                        echo '============================================'
 
 
-                    echo EC2 IP:
+                        withCredentials([
 
-                    echo %EC2_IP%
+                            sshUserPrivateKey(
+                                credentialsId:
+                                "${EC2_SSH_CREDENTIALS}",
+
+                                keyFileVariable:
+                                'EC2_KEY_FILE',
+
+                                usernameVariable:
+                                'EC2_USER'
+                            )
+
+                        ]) {
+
+                            powershell '''
+
+                                $ErrorActionPreference = "Stop"
 
 
-                    echo.
-                    echo ===== GENERATING INVENTORY =====
+                                Write-Host "===== ANSIBLE VERSION ====="
+
+                                wsl.exe -d Ubuntu -- bash -lc "ansible --version"
 
 
-                    powershell -NoProfile -Command ^
-                    "$content = '[servers]`nserver ansible_host=%EC2_IP% ansible_user=ubuntu'; ^
-                    Set-Content -Path 'ansible\\inventory.ini' -Value $content"
+                                Write-Host "===== EC2 IP ====="
 
-                '''
+                                $ec2Ip = (terraform -chdir=terraform output -raw ec2_public_ip).Trim()
+
+                                Write-Host $ec2Ip
+
+
+                                Write-Host "===== WSL WORKSPACE ====="
+
+                                $wslWorkspace = (
+                                    wsl.exe -d Ubuntu -- wslpath -a "$env:WORKSPACE"
+                                ).Trim()
+
+                                Write-Host $wslWorkspace
+
+
+                                Write-Host "===== COPY SSH KEY TO WSL ====="
+
+                                $wslKeySource = (
+                                    wsl.exe -d Ubuntu -- wslpath -a "$env:EC2_KEY_FILE"
+                                ).Trim()
+
+
+                                wsl.exe -d Ubuntu -- bash -lc `
+                                "cp '$wslKeySource' /tmp/jenkins-ec2-key.pem && chmod 600 /tmp/jenkins-ec2-key.pem"
+
+
+                                Write-Host "===== CREATE ANSIBLE INVENTORY ====="
+
+
+                                $inventory = @"
+[servers]
+jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private_key_file=/tmp/jenkins-ec2-key.pem
+"@
+
+
+                                Set-Content `
+                                    -Path "$env:WORKSPACE\ansible\inventory.ini" `
+                                    -Value $inventory
+
+
+                                Write-Host "===== RUN ANSIBLE ====="
+
+
+                                wsl.exe -d Ubuntu -- bash -lc `
+                                "cd '$wslWorkspace' && ansible-playbook -i ansible/inventory.ini ansible/playbook.yml"
+
+
+                                Write-Host "===== REMOVE TEMP SSH KEY ====="
+
+
+                                wsl.exe -d Ubuntu -- bash -lc `
+                                "rm -f /tmp/jenkins-ec2-key.pem"
+
+                            '''
+                        }
+
+                    }
+                    else {
+
+                        echo '''
+                        ============================================
+
+                        ANSIBLE SKIPPED
+
+                        Current Terraform configuration does not
+                        expose an ec2_public_ip output.
+
+                        Ansible will run automatically after the
+                        Terraform configuration creates the
+                        Jenkins Agent EC2 instance and adds:
+
+                        output "ec2_public_ip"
+
+                        ============================================
+                        '''
+                    }
+                }
             }
         }
 
 
         // ======================================================
-        // 08 - ANSIBLE
+        // 08 - SONARQUBE
         // ======================================================
 
-        stage('08 - Ansible Configuration') {
-
-            agent {
-                label 'built-in'
-            }
-
-            steps {
-
-                echo '''
-                ============================================
-
-                WINDOWS JENKINS
-
-                       ↓
-
-                WSL2 + UBUNTU
-
-                       ↓
-
-                ANSIBLE
-
-                       ↓
-
-                AWS EC2
-
-                ============================================
-                '''
-
-
-                bat '''
-
-                    echo.
-                    echo ===== CHECK ANSIBLE =====
-
-
-                    wsl.exe -d Ubuntu -- bash -lc ^
-                    "ansible --version"
-
-
-                    echo.
-                    echo ===== RUN ANSIBLE =====
-
-
-                    wsl.exe -d Ubuntu -- bash -lc ^
-                    "cd /mnt/c/ProgramData/Jenkins/.jenkins/workspace/ecommerce-port-design && ^
-                    ansible-playbook ^
-                    -i ansible/inventory.ini ^
-                    ansible/playbook.yml"
-
-                '''
-            }
-        }
-
-
-        // ======================================================
-        // 09 - SONARQUBE
-        // ======================================================
-
-        stage('09 - SonarQube Analysis') {
+        stage('08 - SonarQube Analysis') {
 
             agent {
                 label 'built-in'
@@ -555,9 +620,7 @@ pipeline {
             steps {
 
                 echo '============================================'
-
                 echo 'SONARQUBE CODE ANALYSIS'
-
                 echo '============================================'
 
 
@@ -581,10 +644,10 @@ pipeline {
 
 
         // ======================================================
-        // 10 - SONARQUBE QUALITY GATE
+        // 09 - SONARQUBE QUALITY GATE
         // ======================================================
 
-        stage('10 - SonarQube Quality Gate') {
+        stage('09 - SonarQube Quality Gate') {
 
             agent {
                 label 'built-in'
@@ -593,9 +656,7 @@ pipeline {
             steps {
 
                 echo '============================================'
-
-                echo 'WAITING FOR SONARQUBE QUALITY GATE'
-
+                echo 'SONARQUBE QUALITY GATE'
                 echo '============================================'
 
 
@@ -613,10 +674,10 @@ pipeline {
 
 
         // ======================================================
-        // 11 - DOCKER BUILD
+        // 10 - DOCKER BUILD
         // ======================================================
 
-        stage('11 - Docker Build') {
+        stage('10 - Docker Build') {
 
             agent {
                 label 'built-in'
@@ -624,11 +685,7 @@ pipeline {
 
             steps {
 
-                echo '============================================'
-
-                echo "BUILDING IMAGE: ${FULL_IMAGE}"
-
-                echo '============================================'
+                echo "BUILDING: ${FULL_IMAGE}"
 
 
                 bat """
@@ -644,7 +701,7 @@ pipeline {
 
 
                     echo.
-                    echo ===== CREATED IMAGES =====
+                    echo ===== IMAGE CREATED =====
 
 
                     docker images ${DOCKER_IMAGE}
@@ -655,10 +712,10 @@ pipeline {
 
 
         // ======================================================
-        // 12 - DOCKER TEST
+        // 11 - DOCKER CONTAINER TEST
         // ======================================================
 
-        stage('12 - Docker Container Test') {
+        stage('11 - Docker Test') {
 
             agent {
                 label 'built-in'
@@ -671,10 +728,10 @@ pipeline {
                     echo ===== REMOVE OLD TEST CONTAINER =====
 
 
-                    docker rm -f ecommerce-test 2>NUL || exit 0
+                    docker rm -f ecommerce-test 2>NUL || exit /b 0
 
 
-                    echo ===== START TEST CONTAINER =====
+                    echo ===== START CONTAINER =====
 
 
                     docker run -d ^
@@ -683,16 +740,19 @@ pipeline {
                       ${DOCKER_IMAGE}:${BUILD_NUMBER}
 
 
+                    echo ===== WAITING FOR CONTAINER =====
+
+
                     timeout /t 8 /nobreak
 
 
-                    echo ===== HEALTH CHECK =====
+                    echo ===== WEBSITE TEST =====
 
 
-                    curl.exe -f http://localhost:8090/health
+                    curl.exe -f http://localhost:8090/
 
 
-                    echo ===== TEST SUCCESS =====
+                    echo ===== CONTAINER TEST PASSED =====
 
 
                     docker rm -f ecommerce-test
@@ -703,10 +763,10 @@ pipeline {
 
 
         // ======================================================
-        // 13 - TRIVY
+        // 12 - TRIVY SECURITY SCAN
         // ======================================================
 
-        stage('13 - Trivy Security Scan') {
+        stage('12 - Trivy Security Scan') {
 
             agent {
                 label 'built-in'
@@ -715,9 +775,7 @@ pipeline {
             steps {
 
                 echo '============================================'
-
-                echo "TRIVY SCANNING: ${FULL_IMAGE}"
-
+                echo "TRIVY SCAN: ${FULL_IMAGE}"
                 echo '============================================'
 
 
@@ -735,10 +793,10 @@ pipeline {
 
 
         // ======================================================
-        // 14 - DOCKER HUB PUSH
+        // 13 - DOCKER HUB PUSH
         // ======================================================
 
-        stage('14 - Docker Hub Push') {
+        stage('13 - Docker Hub Push') {
 
             agent {
                 label 'built-in'
@@ -746,11 +804,7 @@ pipeline {
 
             steps {
 
-                echo '============================================'
-
-                echo "PUSHING: ${FULL_IMAGE}"
-
-                echo '============================================'
+                echo "PUSHING IMAGE: ${FULL_IMAGE}"
 
 
                 withCredentials([
@@ -770,6 +824,9 @@ pipeline {
                 ]) {
 
                     bat """
+
+                        echo ===== DOCKER LOGIN =====
+
 
                         docker login ^
                           -u %DOCKER_USERNAME% ^
@@ -792,6 +849,10 @@ pipeline {
                           ${DOCKER_IMAGE}:latest
 
 
+                        echo.
+                        echo ===== DOCKER LOGOUT =====
+
+
                         docker logout
 
                     """
@@ -801,10 +862,10 @@ pipeline {
 
 
         // ======================================================
-        // 15 - EKS LOGIN
+        // 14 - CONNECT EKS
         // ======================================================
 
-        stage('15 - Connect to AWS EKS') {
+        stage('14 - Connect to AWS EKS') {
 
             agent {
                 label 'built-in'
@@ -860,41 +921,10 @@ pipeline {
 
 
         // ======================================================
-        // 16 - METRICS SERVER
+        // 15 - KUBERNETES NAMESPACE
         // ======================================================
 
-        stage('16 - Metrics Server') {
-
-            agent {
-                label 'built-in'
-            }
-
-            steps {
-
-                bat '''
-
-                    helm repo add metrics-server ^
-                    https://kubernetes-sigs.github.io/metrics-server/
-
-
-                    helm repo update
-
-
-                    helm upgrade --install metrics-server ^
-                    metrics-server/metrics-server ^
-                    --namespace kube-system ^
-                    --set args[0]=--kubelet-insecure-tls
-
-                '''
-            }
-        }
-
-
-        // ======================================================
-        // 17 - KUBERNETES NAMESPACE
-        // ======================================================
-
-        stage('17 - Kubernetes Namespace') {
+        stage('15 - Kubernetes Namespace') {
 
             agent {
                 label 'built-in'
@@ -905,7 +935,7 @@ pipeline {
                 bat '''
 
                     kubectl apply ^
-                    -f k8s/namespace.yaml
+                      -f k8s/namespace.yaml
 
                 '''
             }
@@ -913,10 +943,10 @@ pipeline {
 
 
         // ======================================================
-        // 18 - KUBERNETES RESOURCES
+        // 16 - KUBERNETES DEPLOYMENT
         // ======================================================
 
-        stage('18 - Kubernetes Resources') {
+        stage('16 - Kubernetes Deployment') {
 
             agent {
                 label 'built-in'
@@ -924,7 +954,7 @@ pipeline {
 
             steps {
 
-                bat """
+                bat '''
 
                     kubectl apply ^
                       -f k8s/deployment.yaml
@@ -941,16 +971,16 @@ pipeline {
                     kubectl apply ^
                       -f k8s/ingress.yaml
 
-                """
+                '''
             }
         }
 
 
         // ======================================================
-        // 19 - KUBERNETES IMAGE UPDATE
+        // 17 - KUBERNETES IMAGE UPDATE
         // ======================================================
 
-        stage('19 - Kubernetes Rolling Update') {
+        stage('17 - Kubernetes Rolling Update') {
 
             agent {
                 label 'built-in'
@@ -958,11 +988,7 @@ pipeline {
 
             steps {
 
-                echo '============================================'
-
-                echo "DEPLOYING IMAGE: ${FULL_IMAGE}"
-
-                echo '============================================'
+                echo "DEPLOYING: ${FULL_IMAGE}"
 
 
                 bat """
@@ -988,57 +1014,10 @@ pipeline {
 
 
         // ======================================================
-        // 20 - MONITORING
+        // 18 - VERIFY KUBERNETES
         // ======================================================
 
-        stage('20 - Prometheus Grafana Alertmanager') {
-
-            agent {
-                label 'built-in'
-            }
-
-            steps {
-
-                echo '''
-                ============================================
-
-                KUBERNETES MONITORING
-
-                Prometheus
-                Grafana
-                Alertmanager
-
-                ============================================
-                '''
-
-
-                bat '''
-
-                    helm repo add prometheus-community ^
-                    https://prometheus-community.github.io/helm-charts
-
-
-                    helm repo update
-
-
-                    helm upgrade --install monitoring ^
-                    prometheus-community/kube-prometheus-stack ^
-                    --namespace monitoring ^
-                    --create-namespace ^
-                    --set grafana.service.type=ClusterIP ^
-                    --set prometheus.prometheusSpec.retention=7d ^
-                    --set alertmanager.enabled=true
-
-                '''
-            }
-        }
-
-
-        // ======================================================
-        // 21 - FINAL VERIFICATION
-        // ======================================================
-
-        stage('21 - Final Verification') {
+        stage('18 - Kubernetes Verification') {
 
             agent {
                 label 'built-in'
@@ -1050,21 +1029,12 @@ pipeline {
 
                     echo.
                     echo ============================================
-                    echo DOCKER IMAGE
-                    echo ============================================
-
-
-                    echo ${FULL_IMAGE}
-
-
-                    echo.
-                    echo ============================================
-                    echo APPLICATION PODS
+                    echo PODS
                     echo ============================================
 
 
                     kubectl get pods ^
-                      --namespace ${K8S_NAMESPACE}
+                      -n ${K8S_NAMESPACE}
 
 
                     echo.
@@ -1073,8 +1043,8 @@ pipeline {
                     echo ============================================
 
 
-                    kubectl get services ^
-                      --namespace ${K8S_NAMESPACE}
+                    kubectl get svc ^
+                      -n ${K8S_NAMESPACE}
 
 
                     echo.
@@ -1084,7 +1054,7 @@ pipeline {
 
 
                     kubectl get hpa ^
-                      --namespace ${K8S_NAMESPACE}
+                      -n ${K8S_NAMESPACE}
 
 
                     echo.
@@ -1094,22 +1064,130 @@ pipeline {
 
 
                     kubectl get ingress ^
-                      --namespace ${K8S_NAMESPACE}
+                      -n ${K8S_NAMESPACE}
+
+                """
+            }
+        }
 
 
-                    echo.
-                    echo ============================================
-                    echo MONITORING
-                    echo ============================================
+        // ======================================================
+        // 19 - MONITORING VERIFICATION
+        // ======================================================
+
+        stage('19 - Monitoring Verification') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                echo '''
+                ============================================
+
+                PROMETHEUS
+                GRAFANA
+                ALERTMANAGER
+
+                ============================================
+                '''
+
+
+                bat '''
+
+                    echo ===== MONITORING NAMESPACE =====
 
 
                     kubectl get pods ^
-                      --namespace monitoring
+                      -n monitoring
+
+
+                    echo.
+
+
+                    echo ===== MONITORING SERVICES =====
+
+
+                    kubectl get svc ^
+                      -n monitoring
+
+                '''
+            }
+        }
+
+
+        // ======================================================
+        // 20 - FINAL VERIFICATION
+        // ======================================================
+
+        stage('20 - Final Verification') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                bat """
+
+                    echo.
+                    echo ============================================
+                    echo FINAL CI/CD VERIFICATION
+                    echo ============================================
+
+
+                    echo.
+                    echo DOCKER IMAGE:
+
+
+                    echo ${FULL_IMAGE}
+
+
+                    echo.
+                    echo APPLICATION:
+
+
+                    kubectl get deployment ^
+                      ${K8S_DEPLOYMENT} ^
+                      -n ${K8S_NAMESPACE}
+
+
+                    echo.
+                    echo APPLICATION PODS:
+
+
+                    kubectl get pods ^
+                      -n ${K8S_NAMESPACE}
+
+
+                    echo.
+                    echo APPLICATION SERVICE:
+
+
+                    kubectl get svc ^
+                      -n ${K8S_NAMESPACE}
+
+
+                    echo.
+                    echo APPLICATION INGRESS:
+
+
+                    kubectl get ingress ^
+                      -n ${K8S_NAMESPACE}
+
+
+                    echo.
+                    echo MONITORING:
+
+
+                    kubectl get pods ^
+                      -n monitoring
 
 
                     echo.
                     echo ============================================
-                    echo PIPELINE SUCCESSFULLY COMPLETED
+                    echo PIPELINE COMPLETED SUCCESSFULLY
                     echo ============================================
 
                 """
@@ -1128,43 +1206,55 @@ pipeline {
 
             echo """
 
-            ================================================
+            ==================================================
 
             CI/CD PIPELINE SUCCESS
 
-            BUILD NUMBER:
+            GitLab:
+            ${GITLAB_REPO}
+
+            Branch:
+            ${GITLAB_BRANCH}
+
+            Build:
             ${BUILD_NUMBER}
 
-            DOCKER IMAGE:
+            Docker Image:
             ${FULL_IMAGE}
 
-            ================================================
+            ==================================================
+
+            FLOW:
 
             GitLab
-                 ↓
+               ↓
+            Jenkins
+               ↓
             Terraform
-                 ↓
-            Ansible
-                 ↓
+               ↓
+            AWS VPC + EKS
+               ↓
+            Ansible / EC2
+               ↓
             SonarQube
-                 ↓
-            Docker
-                 ↓
+               ↓
+            Quality Gate
+               ↓
+            Docker Build
+               ↓
+            Docker Test
+               ↓
             Trivy
-                 ↓
+               ↓
             Docker Hub
-                 ↓
+               ↓
             EKS
-                 ↓
+               ↓
             Kubernetes
-                 ↓
-            Helm
-                 ↓
-            Prometheus
-            Grafana
-            Alertmanager
+               ↓
+            Monitoring
 
-            ================================================
+            ==================================================
 
             """
 
@@ -1175,16 +1265,19 @@ pipeline {
 
             echo """
 
-            ================================================
+            ==================================================
 
             CI/CD PIPELINE FAILED
 
-            BUILD NUMBER:
+            Build:
             ${BUILD_NUMBER}
 
-            CHECK JENKINS CONSOLE OUTPUT
+            Docker Image:
+            ${FULL_IMAGE}
 
-            ================================================
+            Check Jenkins Console Output.
+
+            ==================================================
 
             """
 
@@ -1195,11 +1288,11 @@ pipeline {
 
             echo "============================================"
 
-            echo "JOB NAME    : ${JOB_NAME}"
+            echo "JOB       : ${JOB_NAME}"
 
-            echo "BUILD NUMBER: ${BUILD_NUMBER}"
+            echo "BUILD     : ${BUILD_NUMBER}"
 
-            echo "IMAGE       : ${FULL_IMAGE}"
+            echo "IMAGE     : ${FULL_IMAGE}"
 
             echo "============================================"
         }
