@@ -1069,74 +1069,73 @@ jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private
 
         stage('19 - Install Monitoring') {
 
-            agent {
-                label 'built-in'
+                agent {
+                    label 'built-in'
+                }
+
+                steps {
+
+                    withCredentials([
+                        string(
+                            credentialsId: 'grafana-admin-password',
+                            variable: 'GRAFANA_ADMIN_PASSWORD'
+                        )
+                    ]) {
+
+                        bat '''
+
+                            echo ============================================
+                            echo ADD PROMETHEUS COMMUNITY HELM REPOSITORY
+                            echo ============================================
+
+                            helm repo add prometheus-community ^
+                            https://prometheus-community.github.io/helm-charts
+
+                            helm repo update
+
+
+                            echo ============================================
+                            echo CREATE MONITORING NAMESPACE
+                            echo ============================================
+
+                            kubectl create namespace monitoring ^
+                            --dry-run=client ^
+                            -o yaml ^
+                            | kubectl apply -f -
+
+
+                            echo ============================================
+                            echo INSTALL MONITORING
+                            echo ============================================
+
+                            helm upgrade --install monitoring ^
+                            prometheus-community/kube-prometheus-stack ^
+                            --namespace monitoring ^
+                            --values k8s/monitoring-values.yaml ^
+                            --set grafana.adminPassword="%GRAFANA_ADMIN_PASSWORD%" ^
+                            --wait ^
+                            --timeout 10m
+
+
+                            echo ============================================
+                            echo HELM RELEASE
+                            echo ============================================
+
+                            helm list ^
+                            --namespace monitoring
+
+
+                            echo ============================================
+                            echo MONITORING PODS
+                            echo ============================================
+
+                            kubectl get pods ^
+                            --namespace monitoring
+
+                        '''
+                    }
+                }
             }
-
-            steps {
-
-                bat '''
-
-                    echo ============================================
-                    echo ADD PROMETHEUS COMMUNITY HELM REPOSITORY
-                    echo ============================================
-
-                    helm repo add prometheus-community ^
-                    https://prometheus-community.github.io/helm-charts
-
-
-                    echo.
-                    echo ============================================
-                    echo UPDATE HELM REPOSITORIES
-                    echo ============================================
-
-                    helm repo update
-
-
-                    echo.
-                    echo ============================================
-                    echo CREATE MONITORING NAMESPACE
-                    echo ============================================
-
-                    kubectl create namespace monitoring ^
-                    --dry-run=client ^
-                    -o yaml ^
-                    | kubectl apply -f -
-
-
-                    echo.
-                    echo ============================================
-                    echo INSTALL / UPGRADE KUBE-PROMETHEUS-STACK
-                    echo ============================================
-
-                    helm upgrade --install monitoring ^
-                    prometheus-community/kube-prometheus-stack ^
-                    --namespace monitoring ^
-                    --values k8s/monitoring-values.yaml ^
-                    --wait ^
-                    --timeout 10m
-
-
-                    echo.
-                    echo ============================================
-                    echo MONITORING HELM RELEASE
-                    echo ============================================
-
-                    helm list ^
-                    --namespace monitoring
-
-
-                    echo.
-                    echo ============================================
-                    echo MONITORING PODS
-                    echo ============================================
-
-                    kubectl get pods ^
-                    --namespace monitoring
-
-                '''
-            }
-        }
 
 
         // ======================================================
