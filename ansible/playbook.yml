@@ -1,4 +1,4 @@
-- name: Configure AWS EC2 Server
+- name: Configure AWS EC2 Server for EKS CI/CD
   hosts: servers
   become: true
 
@@ -18,11 +18,12 @@
           - unzip
           - ca-certificates
           - openjdk-17-jre
+          - apt-transport-https
         state: present
 
-    # -------------------------
-    # Docker
-    # -------------------------
+    # =========================
+    # DOCKER
+    # =========================
 
     - name: Install Docker
       apt:
@@ -43,25 +44,9 @@
         groups: docker
         append: true
 
-    # -------------------------
-    # kubectl
-    # -------------------------
-
-    - name: Install kubectl
-      shell: |
-        KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-
-        curl -L \
-          "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
-          -o /usr/local/bin/kubectl
-
-        chmod +x /usr/local/bin/kubectl
-      args:
-        creates: /usr/local/bin/kubectl
-
-    # -------------------------
+    # =========================
     # AWS CLI
-    # -------------------------
+    # =========================
 
     - name: Download AWS CLI
       get_url:
@@ -81,9 +66,46 @@
       args:
         creates: /usr/local/bin/aws
 
-    # -------------------------
-    # Helm
-    # -------------------------
+    # =========================
+    # KUBECTL
+    # =========================
+
+    - name: Install kubectl
+      shell: |
+        KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+
+        curl -L \
+          "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+          -o /usr/local/bin/kubectl
+
+        chmod +x /usr/local/bin/kubectl
+      args:
+        creates: /usr/local/bin/kubectl
+
+    # =========================
+    # EKSCTL
+    # =========================
+
+    - name: Install eksctl
+      shell: |
+        ARCH=amd64
+        PLATFORM=$(uname -s)_$ARCH
+
+        curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_${PLATFORM}.tar.gz"
+
+        tar -xzf "eksctl_${PLATFORM}.tar.gz" -C /tmp
+
+        mv /tmp/eksctl /usr/local/bin/eksctl
+
+        chmod +x /usr/local/bin/eksctl
+
+        rm -f "eksctl_${PLATFORM}.tar.gz"
+      args:
+        creates: /usr/local/bin/eksctl
+
+    # =========================
+    # HELM
+    # =========================
 
     - name: Install Helm
       shell: |
@@ -91,9 +113,9 @@
       args:
         creates: /usr/local/bin/helm
 
-    # -------------------------
-    # Trivy
-    # -------------------------
+    # =========================
+    # TRIVY
+    # =========================
 
     - name: Install Trivy
       shell: |
@@ -103,13 +125,18 @@
       args:
         creates: /usr/local/bin/trivy
 
-    # -------------------------
-    # Verification
-    # -------------------------
+    # =========================
+    # VERIFICATION
+    # =========================
 
     - name: Verify Docker
       command: docker --version
       register: docker_version
+      changed_when: false
+
+    - name: Verify AWS CLI
+      command: aws --version
+      register: aws_version
       changed_when: false
 
     - name: Verify kubectl
@@ -117,9 +144,9 @@
       register: kubectl_version
       changed_when: false
 
-    - name: Verify AWS CLI
-      command: aws --version
-      register: aws_version
+    - name: Verify eksctl
+      command: eksctl version
+      register: eksctl_version
       changed_when: false
 
     - name: Verify Helm
@@ -135,9 +162,12 @@
     - name: Configuration completed
       debug:
         msg:
-          - "EC2 configuration completed successfully"
+          - "========================================"
+          - "EKS CI/CD Server Setup Completed"
+          - "========================================"
           - "{{ docker_version.stdout }}"
-          - "{{ kubectl_version.stdout }}"
           - "{{ aws_version.stdout }}"
+          - "{{ kubectl_version.stdout }}"
+          - "eksctl: {{ eksctl_version.stdout }}"
           - "{{ helm_version.stdout }}"
           - "{{ trivy_version.stdout }}"
