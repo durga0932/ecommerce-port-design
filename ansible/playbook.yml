@@ -1,15 +1,13 @@
 - name: Configure AWS EC2 Server
-
   hosts: servers
-
   become: true
 
   tasks:
 
-    - name: Update apt
+    - name: Update apt cache
       apt:
         update_cache: yes
-
+        cache_valid_time: 3600
 
     - name: Install common packages
       apt:
@@ -22,57 +20,70 @@
           - openjdk-17-jre
         state: present
 
+    # -------------------------
+    # Docker
+    # -------------------------
 
     - name: Install Docker
       apt:
-        name:
-          - docker.io
+        name: docker.io
         state: present
 
-
-    - name: Start Docker
+    - name: Start and enable Docker
       systemd:
         name: docker
         state: started
         enabled: true
-
 
     - name: Create devops user
       user:
         name: devops
         shell: /bin/bash
         create_home: true
-
-
-    - name: Add devops to Docker group
-      user:
-        name: devops
         groups: docker
         append: true
 
+    # -------------------------
+    # kubectl
+    # -------------------------
 
     - name: Install kubectl
       shell: |
         KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+
         curl -L \
-        https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
-        -o /usr/local/bin/kubectl
+          "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+          -o /usr/local/bin/kubectl
+
         chmod +x /usr/local/bin/kubectl
       args:
         creates: /usr/local/bin/kubectl
 
+    # -------------------------
+    # AWS CLI
+    # -------------------------
+
+    - name: Download AWS CLI
+      get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /tmp/awscliv2.zip
+        mode: '0644'
+
+    - name: Extract AWS CLI
+      unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: true
+        creates: /tmp/aws
 
     - name: Install AWS CLI
-      shell: |
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" \
-        -o /tmp/awscliv2.zip
-
-        unzip -o /tmp/awscliv2.zip -d /tmp
-
-        /tmp/aws/install
+      command: /tmp/aws/install
       args:
         creates: /usr/local/bin/aws
 
+    # -------------------------
+    # Helm
+    # -------------------------
 
     - name: Install Helm
       shell: |
@@ -80,45 +91,53 @@
       args:
         creates: /usr/local/bin/helm
 
+    # -------------------------
+    # Trivy
+    # -------------------------
 
     - name: Install Trivy
       shell: |
         curl -sfL \
-        https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-        | sh -s -- -b /usr/local/bin
+          https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+          | sh -s -- -b /usr/local/bin
       args:
         creates: /usr/local/bin/trivy
 
+    # -------------------------
+    # Verification
+    # -------------------------
 
     - name: Verify Docker
       command: docker --version
       register: docker_version
       changed_when: false
 
-
     - name: Verify kubectl
       command: kubectl version --client
       register: kubectl_version
       changed_when: false
 
+    - name: Verify AWS CLI
+      command: aws --version
+      register: aws_version
+      changed_when: false
 
     - name: Verify Helm
       command: helm version
       register: helm_version
       changed_when: false
 
-
     - name: Verify Trivy
       command: trivy --version
       register: trivy_version
       changed_when: false
 
-
     - name: Configuration completed
       debug:
         msg:
-          - "EC2 configuration completed"
+          - "EC2 configuration completed successfully"
           - "{{ docker_version.stdout }}"
           - "{{ kubectl_version.stdout }}"
+          - "{{ aws_version.stdout }}"
           - "{{ helm_version.stdout }}"
           - "{{ trivy_version.stdout }}"
