@@ -35,7 +35,7 @@ spec:
 
         - name: ecommerce-port-design
 
-          image: shivsoftapp/ecommerce-port-design:539
+          image: shivsoftapp/ecommerce-port-design:latest
 
           imagePullPolicy: Always
 
