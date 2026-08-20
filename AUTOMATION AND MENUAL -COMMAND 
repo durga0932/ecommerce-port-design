@@ -1,0 +1,248 @@
+--------------------WINDOWS-------------------------
+
+docker --version
+terraform version
+aws --version
+kubectl version --client
+helm version
+trivy --version
+wsl -d Ubuntu -- ansible --version
+
+Sab version return kare → ✅
+
+--------------JENKINS CREDENTIALS-----------------------
+
+Exact IDs:
+
+gitlab-credentials
+aws-credentials
+dockerhub-credentials
+sonarqube-token
+ec2-ssh-key
+grafana-admin-password
+
+
+----------------GTLAB-----------------------
+
+Jenkinsfile                 ✅
+
+terraform/master.tf         ✅
+
+ansible/ansible.cfg         ✅
+
+ansible/inventory           ✅
+
+ansible/playbook.yml        ✅
+
+k8s/deployment.yaml         ✅
+
+k8s/service.yaml            ✅
+
+k8s/hpa.yaml                ✅
+
+k8s/ingress.yaml            ✅
+
+k8s/monitoring-values.yaml  ✅
+
+Jenkins
+
+Build with Parameters में:
+
+AWS_REGION        = ap-south-1
+EKS_CLUSTER_NAME  = ecommerce-eks
+AWS_KEYPAIR_NAME  = ecommerce-devops-key
+
+
+------ONE TIME SETUP ON LOCAL WINDOW MACHINE----------------------
+
+1 Windows PowerShell as Administrator खोलें:
+
+ -- wsl --install 
+
+1- wsl --version
+
+2- wsl --status
+
+3- wsl --install -d Ubuntu
+
+--if you have to already installed ubuntu on window then type below caommands
+
+wsl -l -v
+
+now display output
+
+NAME      STATE       VERSION
+Ubuntu    Running     2
+
+VERSION 1 
+
+wsl --set-version Ubuntu 2
+
+Default WSL version 
+
+wsl --set-default-version 2
+
+
+----go to window start or below title search button 
+
+---open ubuntu
+ -then -Ansible Install------
+
+1- sudo apt update
+2- sudo apt upgrade -y
+3- sudo apt install ansible -y
+4- ansible --version
+
+
+==> Windows Docker Desktop पर local testing 
+
+   4- SonarQube 
+     
+     docker run -d --name sonarqube -p 9000:9000 sonarqube:lts-community
+     
+     - http://localhost:9000
+
+   5- trivy-Install
+
+    - winget install AquaSecurity.Trivy
+
+    -trivy --version
+   
+    - where trivy
+
+    OR 
+
+    - choco install trivy -y
+    
+    - choco install trivy -y
+
+    - where trivy
+   
+   6- HELM INSTALLATION 
+
+     - winget install Kubernetes.Helm
+
+     - helm version
+
+------------------------------------------------------------------
+    -IF YOU WAN TO MENUALLY THEN YOU CAN USE BELOW CANNADS ----
+   
+
+  2 Promotheus
+     
+     docker run -d --name prometheus -p 9090:9090 prom/prometheus:latest
+
+     http://localhost:9090
+
+  3- Grafana
+
+     docker run -d --name grafana -p 3000:3000 grafana/grafana:latest   
+      
+      http://localhost:3000
+
+   4 - Trivy
+
+      docker run --rm aquasec/trivy:latest image shivsoftapp/ecommerce-port-design:539   
+
+      docker run --rm aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 shivsoftapp/ecommerce-port-design:539
+
+
+   ----------------OOOOOO----RRRRRRR-----------------------------
+
+    IF YOU WAN TO USE AUTOMATION THEN USE CAN MY THIS LAB M USING - 
+    k8s/monitoring-values.yaml-this file with jeninkins file autometicalaly install grafana and promotheus 
+    in your pipleline automation in ths lab or nay project 
+
+
+------------------------------------ONE TIME LOCAL WINDOW SETUP--------------------------
+
+git --version
+java -version
+docker --version
+terraform version
+aws --version
+kubectl version --client
+helm version
+trivy --version
+
+----------------------------------------------------------------------------------------------
+==> enkins Credentials List
+
+Jenkins mein:
+
+Dashboard → Manage Jenkins → Credentials → System → Global credentials → Add Credentials
+
+Aapko primarily 5 credentials chahiye:
+
+#	Credential ID	           Type	                                       Use
+-------------------------------------------------------------------------------------------
+
+1- Credential 1 — GitLab
+ID:- gitlab-credentials
+
+---------------------------------
+2.Credential 2 — AWS
+ID: aws-credentials
+
+AWS Access Key + Secret Access Key.
+
+-----------------------------------------------
+
+3. Credential 3 — Docker Hub
+ID: dockerhub-credentials
+
+Username:
+
+shivsoftapp
+
+-------------------------------------
+
+4. Credential 4 — SonarQube
+
+Kind: Secret text
+ID: sonarqube-token
+Secret: - SonarQube token
+
+-------------------------------
+
+5. Credential 5 — EC2 SSH
+Kind:
+SSH Username with private key
+
+ID:
+ec2-ssh-key
+
+Username:
+ubuntu
+
+Private Key:
+आपकी AWS .pem private key
+
+---------------------------------------
+
+6.Credential 6 — Grafana
+Kind:
+Secret text
+
+
+ID:
+grafana-admin-password
+
+
+Secret:
+आपका strong Grafana password
+
+------------------------------------------
+
+1	gitlab-credentials	         Username + Password / Token	          GitLab checkout
+2	aws-credentials	             AWS Credentials	                      Terraform + AWS CLI + EKS
+3	dockerhub-credentials	     Username + Password	                    Docker Hub push
+4	sonarqube-token	              Secret Text	                           SonarQube
+5	ec2-ssh-key	                  SSH Private Key	                         Ansible → EC2
+6 grafana-admin-password            Secret text                            Grafana creadentails
+
+
+------------------------------------------------------------------------------------------------------------------------
+1. DOCKER Desktop
+2 DOCKER HUB 
+
