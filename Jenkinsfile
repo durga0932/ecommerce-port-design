@@ -1064,7 +1064,83 @@ jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private
 
 
         // ======================================================
-        // 19 - MONITORING VERIFICATION
+        // 19 - INSTALL MONITORING
+        // ======================================================
+
+        stage('19 - Install Monitoring') {
+
+            agent {
+                label 'built-in'
+            }
+
+            steps {
+
+                bat '''
+
+                    echo ============================================
+                    echo ADD PROMETHEUS COMMUNITY HELM REPOSITORY
+                    echo ============================================
+
+                    helm repo add prometheus-community ^
+                    https://prometheus-community.github.io/helm-charts
+
+
+                    echo.
+                    echo ============================================
+                    echo UPDATE HELM REPOSITORIES
+                    echo ============================================
+
+                    helm repo update
+
+
+                    echo.
+                    echo ============================================
+                    echo CREATE MONITORING NAMESPACE
+                    echo ============================================
+
+                    kubectl create namespace monitoring ^
+                    --dry-run=client ^
+                    -o yaml ^
+                    | kubectl apply -f -
+
+
+                    echo.
+                    echo ============================================
+                    echo INSTALL / UPGRADE KUBE-PROMETHEUS-STACK
+                    echo ============================================
+
+                    helm upgrade --install monitoring ^
+                    prometheus-community/kube-prometheus-stack ^
+                    --namespace monitoring ^
+                    --values k8s/monitoring-values.yaml ^
+                    --wait ^
+                    --timeout 10m
+
+
+                    echo.
+                    echo ============================================
+                    echo MONITORING HELM RELEASE
+                    echo ============================================
+
+                    helm list ^
+                    --namespace monitoring
+
+
+                    echo.
+                    echo ============================================
+                    echo MONITORING PODS
+                    echo ============================================
+
+                    kubectl get pods ^
+                    --namespace monitoring
+
+                '''
+            }
+        }
+
+
+        // ======================================================
+        // 20 - MONITORING VERIFICATION
         // ======================================================
 
         stage('19 - Monitoring Verification') {
@@ -1110,7 +1186,7 @@ jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private
 
 
         // ======================================================
-        // 20 - FINAL VERIFICATION
+        // 21 - FINAL VERIFICATION
         // ======================================================
 
         stage('20 - Final Verification') {
