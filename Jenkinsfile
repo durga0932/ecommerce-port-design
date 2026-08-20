@@ -485,41 +485,45 @@ pipeline {
                     ).trim()
 
 
-                    if (
-                        ec2Output &&
-                        !ec2Output.toLowerCase().contains('warning') &&
-                        !ec2Output.toLowerCase().contains('no output')
-                    ) {
+                    if (!ec2Output) {
 
-                        echo '============================================'
-                        echo 'EC2 FOUND'
-                        echo 'STARTING ANSIBLE'
-                        echo '============================================'
+                        error(
+                            'Terraform did not return ec2_public_ip. Ansible cannot continue.'
+                        )
+                    }
 
 
-                        withCredentials([
+                    echo '============================================'
+                    echo 'EC2 FOUND'
+                    echo "EC2 PUBLIC IP: ${ec2Output}"
+                    echo 'STARTING ANSIBLE'
+                    echo '============================================'
 
-                            sshUserPrivateKey(
-                                credentialsId:
-                                "${EC2_SSH_CREDENTIALS}",
 
-                                keyFileVariable:
-                                'EC2_KEY_FILE',
+                    withCredentials([
 
-                                usernameVariable:
-                                'EC2_USER'
-                            )
+                        sshUserPrivateKey(
+                            credentialsId: "${EC2_SSH_CREDENTIALS}",
+                            keyFileVariable: 'EC2_KEY_FILE',
+                            usernameVariable: 'EC2_USER'
+                        )
 
-                        ]) {
+                    ]) {
 
-                            powershell '''
+                        powershell '''
 
-                                $ErrorActionPreference = "Stop"
+                            $ErrorActionPreference = "Stop"
 
+
+                            try {
 
                                 Write-Host "===== ANSIBLE VERSION ====="
 
                                 wsl.exe -d Ubuntu -- bash -lc "ansible --version"
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Ansible is not available inside WSL2 Ubuntu."
+                                }
 
 
                                 Write-Host "===== EC2 IP ====="
@@ -528,7 +532,11 @@ pipeline {
                                     terraform -chdir=terraform output -raw ec2_public_ip
                                 ).Trim()
 
-                                Write-Host $ec2Ip
+                                if ([string]::IsNullOrWhiteSpace($ec2Ip)) {
+                                    throw "EC2 Public IP was not returned by Terraform."
+                                }
+
+                                Write-Host "EC2 IP: $ec2Ip"
 
 
                                 Write-Host "===== WSL WORKSPACE ====="
@@ -537,7 +545,11 @@ pipeline {
                                     wsl.exe -d Ubuntu -- wslpath -a "$env:WORKSPACE"
                                 ).Trim()
 
-                                Write-Host $wslWorkspace
+                                if ([string]::IsNullOrWhiteSpace($wslWorkspace)) {
+                                    throw "Could not convert Jenkins workspace to WSL path."
+                                }
+
+                                Write-Host "WSL Workspace: $wslWorkspace"
 
 
                                 Write-Host "===== COPY SSH KEY TO WSL ====="
@@ -546,19 +558,20 @@ pipeline {
                                     wsl.exe -d Ubuntu -- wslpath -a "$env:EC2_KEY_FILE"
                                 ).Trim()
 
-
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "cp '$wslKeySource' /tmp/jenkins-ec2-key.pem && chmod 600 /tmp/jenkins-ec2-key.pem"
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Failed to copy SSH private key into WSL2."
+                                }
 
 
                                 Write-Host "===== CREATE ANSIBLE INVENTORY ====="
 
-
                                 $inventory = @"
-[servers]
-jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private_key_file=/tmp/jenkins-ec2-key.pem
-"@
-
+        [servers]
+        jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private_key_file=/tmp/jenkins-ec2-key.pem
+        "@
 
                                 Set-Content `
                                     -Path "$env:WORKSPACE\ansible\inventory.ini" `
@@ -570,29 +583,35 @@ jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "cd '$wslWorkspace' && ansible -i ansible/inventory.ini servers -m ping"
 
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Ansible SSH connectivity test failed."
+                                }
+
 
                                 Write-Host "===== RUN ANSIBLE PLAYBOOK ====="
-
 
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "cd '$wslWorkspace' && ansible-playbook -i ansible/inventory.ini ansible/playbook.yml"
 
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Ansible playbook execution failed."
+                                }
+
+
+                                Write-Host "===== ANSIBLE COMPLETED SUCCESSFULLY ====="
+
+                            }
+
+                            finally {
 
                                 Write-Host "===== REMOVE TEMP SSH KEY ====="
-
 
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "rm -f /tmp/jenkins-ec2-key.pem"
 
-                            '''
-                        }
+                            }
 
-                    }
-                    else {
-
-                        error(
-                            'Terraform did not return ec2_public_ip. Ansible cannot continue.'
-                        )
+                        '''
                     }
                 }
             }
