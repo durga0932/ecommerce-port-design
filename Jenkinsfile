@@ -11,7 +11,7 @@ pipeline {
      *    ↓
      * Terraform
      *    ↓
-     * AWS VPC + EKS + ECR
+     * AWS VPC + EC2 + EKS
      *    ↓
      * Ansible - WSL2 Ubuntu
      *    ↓
@@ -32,15 +32,8 @@ pipeline {
      * Prometheus
      * Grafana
      * Alertmanager
-     *
-     * Jenkins Controller:
-     * Windows
-     *
-     * Ansible:
-     * WSL2 + Ubuntu
      * ============================================================
      */
-
 
     agent none
 
@@ -61,6 +54,18 @@ pipeline {
             name: 'EKS_CLUSTER_NAME',
             defaultValue: 'ecommerce-eks',
             description: 'EKS Cluster Name'
+        )
+
+        string(
+            name: 'AWS_KEYPAIR_NAME',
+            defaultValue: 'ecommerce-devops-key',
+            description: 'AWS EC2 Key Pair name'
+        )
+
+        string(
+            name: 'ADMIN_CIDR',
+            defaultValue: 'YOUR_PUBLIC_IP/32',
+            description: 'Public IP allowed to SSH into EC2'
         )
     }
 
@@ -98,10 +103,10 @@ pipeline {
             'shivsoftapp/ecommerce-port-design'
 
         IMAGE_TAG =
-            "539"
+            "${BUILD_NUMBER}"
 
         FULL_IMAGE =
-            "shivsoftapp/ecommerce-port-design:539"
+            "shivsoftapp/ecommerce-port-design:${BUILD_NUMBER}"
 
 
         // ------------------------------------------------------
@@ -187,13 +192,11 @@ pipeline {
                 echo 'GITLAB CHECKOUT'
                 echo '============================================'
 
-
                 git(
                     url: "${GITLAB_REPO}",
                     branch: "${GITLAB_BRANCH}",
                     credentialsId: "${GITLAB_CREDENTIALS}"
                 )
-
 
                 bat '''
                     echo.
@@ -229,6 +232,14 @@ pipeline {
                 echo "Docker Image         : ${FULL_IMAGE}"
 
                 echo "GitLab Branch        : ${GITLAB_BRANCH}"
+
+                echo "AWS Region           : ${AWS_DEFAULT_REGION}"
+
+                echo "EKS Cluster          : ${EKS_CLUSTER_NAME}"
+
+                echo "AWS Key Pair         : ${params.AWS_KEYPAIR_NAME}"
+
+                echo "Admin CIDR           : ${params.ADMIN_CIDR}"
             }
         }
 
@@ -318,6 +329,8 @@ pipeline {
                               -input=false ^
                               -var="aws_region=%AWS_DEFAULT_REGION%" ^
                               -var="cluster_name=%EKS_CLUSTER_NAME%" ^
+                              -var="key_name=%AWS_KEYPAIR_NAME%" ^
+                              -var="admin_cidr=%ADMIN_CIDR%" ^
                               -out=tfplan
 
                         '''
@@ -412,18 +425,18 @@ pipeline {
 
                             echo.
                             echo ========================================
-                            echo AWS REGION
+                            echo EC2 PUBLIC IP
                             echo ========================================
 
-                            terraform output aws_region
+                            terraform output ec2_public_ip
 
 
                             echo.
                             echo ========================================
-                            echo VPC ID
+                            echo EC2 PRIVATE IP
                             echo ========================================
 
-                            terraform output vpc_id
+                            terraform output ec2_private_ip
 
 
                             echo.
@@ -440,22 +453,6 @@ pipeline {
                             echo ========================================
 
                             terraform output eks_cluster_endpoint
-
-
-                            echo.
-                            echo ========================================
-                            echo ECR REPOSITORY
-                            echo ========================================
-
-                            terraform output ecr_repository_url
-
-
-                            echo.
-                            echo ========================================
-                            echo MONITORING
-                            echo ========================================
-
-                            terraform output grafana_release_name
 
                         '''
                     }
@@ -527,7 +524,9 @@ pipeline {
 
                                 Write-Host "===== EC2 IP ====="
 
-                                $ec2Ip = (terraform -chdir=terraform output -raw ec2_public_ip).Trim()
+                                $ec2Ip = (
+                                    terraform -chdir=terraform output -raw ec2_public_ip
+                                ).Trim()
 
                                 Write-Host $ec2Ip
 
@@ -566,7 +565,13 @@ jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private
                                     -Value $inventory
 
 
-                                Write-Host "===== RUN ANSIBLE ====="
+                                Write-Host "===== TEST SSH THROUGH ANSIBLE ====="
+
+                                wsl.exe -d Ubuntu -- bash -lc `
+                                "cd '$wslWorkspace' && ansible -i ansible/inventory.ini servers -m ping"
+
+
+                                Write-Host "===== RUN ANSIBLE PLAYBOOK ====="
 
 
                                 wsl.exe -d Ubuntu -- bash -lc `
@@ -585,22 +590,9 @@ jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private
                     }
                     else {
 
-                        echo '''
-                        ============================================
-
-                        ANSIBLE SKIPPED
-
-                        Current Terraform configuration does not
-                        expose an ec2_public_ip output.
-
-                        Ansible will run automatically after the
-                        Terraform configuration creates the
-                        Jenkins Agent EC2 instance and adds:
-
-                        output "ec2_public_ip"
-
-                        ============================================
-                        '''
+                        error(
+                            'Terraform did not return ec2_public_ip. Ansible cannot continue.'
+                        )
                     }
                 }
             }
@@ -1232,9 +1224,9 @@ jenkins-agent ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private
                ↓
             Terraform
                ↓
-            AWS VPC + EKS
+            AWS VPC + EC2 + EKS
                ↓
-            Ansible / EC2
+            Ansible / WSL2
                ↓
             SonarQube
                ↓
