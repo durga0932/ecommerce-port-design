@@ -72,41 +72,21 @@ module "vpc" {
     2
   )
 
-  # ==========================================================
-  # PRIVATE SUBNETS
-  # ==========================================================
-
   private_subnets = [
     "10.0.1.0/24",
     "10.0.2.0/24"
   ]
-
-  # ==========================================================
-  # PUBLIC SUBNETS
-  # ==========================================================
 
   public_subnets = [
     "10.0.101.0/24",
     "10.0.102.0/24"
   ]
 
-  # ==========================================================
-  # NAT GATEWAY
-  # ==========================================================
-
   enable_nat_gateway = true
   single_nat_gateway = true
 
-  # ==========================================================
-  # DNS
-  # ==========================================================
-
   enable_dns_hostnames = true
   enable_dns_support   = true
-
-  # ==========================================================
-  # EKS SUBNET TAGS
-  # ==========================================================
 
   public_subnet_tags = {
     "kubernetes.io/role/elb" = "1"
@@ -115,10 +95,6 @@ module "vpc" {
   private_subnet_tags = {
     "kubernetes.io/role/internal-elb" = "1"
   }
-
-  # ==========================================================
-  # VPC TAGS
-  # ==========================================================
 
   tags = {
     Project     = "ecommerce-port-design"
@@ -131,13 +107,10 @@ module "vpc" {
 # ============================================================
 
 resource "aws_security_group" "ansible_ec2" {
+
   name        = "ecommerce-ansible-ec2-sg"
   description = "Security group for Ansible managed EC2"
   vpc_id      = module.vpc.vpc_id
-
-  # ==========================================================
-  # SSH ACCESS
-  # ==========================================================
 
   ingress {
     description = "SSH"
@@ -149,10 +122,6 @@ resource "aws_security_group" "ansible_ec2" {
       var.admin_cidr
     ]
   }
-
-  # ==========================================================
-  # OUTBOUND
-  # ==========================================================
 
   egress {
     from_port   = 0
@@ -170,6 +139,7 @@ resource "aws_security_group" "ansible_ec2" {
 # ============================================================
 
 resource "aws_instance" "ansible_server" {
+
   ami           = data.aws_ssm_parameter.ubuntu.value
   instance_type = "t3.micro"
 
@@ -201,6 +171,7 @@ resource "aws_instance" "ansible_server" {
 # ============================================================
 
 module "eks" {
+
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
 
@@ -221,10 +192,6 @@ module "eks" {
 
   vpc_id = module.vpc.vpc_id
 
-  # ==========================================================
-  # EKS WORKER SUBNETS
-  # ==========================================================
-
   subnet_ids = module.vpc.private_subnets
 
   # ==========================================================
@@ -232,6 +199,7 @@ module "eks" {
   # ==========================================================
 
   addons = {
+
     coredns = {
       most_recent = true
     }
@@ -241,7 +209,8 @@ module "eks" {
     }
 
     vpc-cni = {
-      most_recent = true
+      most_recent   = true
+      before_compute = true
     }
 
     eks-pod-identity-agent = {
@@ -255,20 +224,12 @@ module "eks" {
   # ==========================================================
 
   eks_managed_node_groups = {
+
     main = {
 
       name = "ecommerce-node-group"
 
-      # ========================================================
-      # AMAZON LINUX 2023
-      # ========================================================
-
       ami_type = "AL2023_x86_64_STANDARD"
-
-      # ========================================================
-      # INSTANCE TYPE
-      # t3.small instead of t3.micro
-      # ========================================================
 
       instance_types = [
         "t3.small"
@@ -276,31 +237,15 @@ module "eks" {
 
       capacity_type = "ON_DEMAND"
 
-      # ========================================================
-      # SCALING
-      # ========================================================
-
       min_size     = 1
       desired_size = 1
       max_size     = 1
 
-      # ========================================================
-      # ROOT DISK
-      # ========================================================
-
       disk_size = 20
-
-      # ========================================================
-      # UPDATE CONFIGURATION
-      # ========================================================
 
       update_config = {
         max_unavailable = 1
       }
-
-      # ========================================================
-      # NODE TAGS
-      # ========================================================
 
       tags = {
         Name    = "ecommerce-eks-worker"
