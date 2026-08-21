@@ -420,7 +420,7 @@ pipeline {
             // 06 - TERRAFORM APPLY
        // ======================================================
     
-        stage('06 - Terraform Apply') {
+       stage('06 - Terraform Apply') {
 
             agent {
                 label 'built-in'
@@ -448,6 +448,20 @@ pipeline {
                             echo TERRAFORM APPLY
                             echo ============================================
 
+                            echo.
+                            echo AWS REGION:
+                            echo %AWS_DEFAULT_REGION%
+
+                            echo.
+                            echo EKS CLUSTER:
+                            echo %EKS_CLUSTER_NAME%
+
+
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM APPLY STARTED
+                            echo ============================================
+
                             terraform apply ^
                             -input=false ^
                             -auto-approve ^
@@ -461,6 +475,24 @@ pipeline {
                                 echo TERRAFORM APPLY SUCCESSFUL
                                 echo ============================================
 
+                                echo.
+                                echo ============================================
+                                echo VERIFY AWS ACCOUNT
+                                echo ============================================
+
+                                aws sts get-caller-identity
+
+                                echo.
+                                echo ============================================
+                                echo VERIFY EKS CLUSTER
+                                echo ============================================
+
+                                aws eks describe-cluster ^
+                                --region %AWS_DEFAULT_REGION% ^
+                                --name %EKS_CLUSTER_NAME% ^
+                                --query "cluster.{name:name,status:status,version:version}" ^
+                                --output table
+
                                 exit /b 0
                             )
 
@@ -468,13 +500,21 @@ pipeline {
                             echo.
                             echo ============================================
                             echo TERRAFORM APPLY FAILED
-                            echo EKS DIAGNOSTICS
+                            echo EKS DIAGNOSTICS STARTED
                             echo ============================================
 
 
                             echo.
                             echo ============================================
-                            echo AWS ACCOUNT
+                            echo AWS REGION
+                            echo ============================================
+
+                            echo %AWS_DEFAULT_REGION%
+
+
+                            echo.
+                            echo ============================================
+                            echo AWS ACCOUNT / IDENTITY
                             echo ============================================
 
                             aws sts get-caller-identity
@@ -482,12 +522,13 @@ pipeline {
 
                             echo.
                             echo ============================================
-                            echo EKS CLUSTER
+                            echo EKS CLUSTER STATUS
                             echo ============================================
 
                             aws eks describe-cluster ^
+                            --region %AWS_DEFAULT_REGION% ^
                             --name %EKS_CLUSTER_NAME% ^
-                            --query "cluster.{name:name,status:status,version:version}" ^
+                            --query "cluster.{name:name,status:status,version:version,endpoint:endpoint}" ^
                             --output table
 
 
@@ -497,6 +538,7 @@ pipeline {
                             echo ============================================
 
                             aws eks list-nodegroups ^
+                            --region %AWS_DEFAULT_REGION% ^
                             --cluster-name %EKS_CLUSTER_NAME% ^
                             --output table
 
@@ -506,7 +548,7 @@ pipeline {
                             echo NODE GROUP DETAILS
                             echo ============================================
 
-                            for /f "delims=" %%N in ('aws eks list-nodegroups --cluster-name %EKS_CLUSTER_NAME% --query "nodegroups[]" --output text') do (
+                            for /f "delims=" %%N in ('aws eks list-nodegroups --region %AWS_DEFAULT_REGION% --cluster-name %EKS_CLUSTER_NAME% --query "nodegroups[]" --output text') do (
 
                                 echo.
                                 echo --------------------------------------------
@@ -514,6 +556,7 @@ pipeline {
                                 echo --------------------------------------------
 
                                 aws eks describe-nodegroup ^
+                                --region %AWS_DEFAULT_REGION% ^
                                 --cluster-name %EKS_CLUSTER_NAME% ^
                                 --nodegroup-name "%%N" ^
                                 --query "nodegroup.{name:nodegroupName,status:status,ami:amiType,instanceTypes:instanceTypes,capacityType:capacityType,desired:scalingConfig.desiredSize,min:scalingConfig.minSize,max:scalingConfig.maxSize,issues:health.issues}" ^
@@ -524,7 +567,41 @@ pipeline {
 
                             echo.
                             echo ============================================
-                            echo PIPELINE FAILED
+                            echo EC2 INSTANCES
+                            echo ============================================
+
+                            aws ec2 describe-instances ^
+                            --region %AWS_DEFAULT_REGION% ^
+                            --filters "Name=tag:eks:nodegroup-name,Values=ecommerce-node-group" ^
+                            --query "Reservations[].Instances[].{InstanceId:InstanceId,State:State.Name,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress,InstanceType:InstanceType}" ^
+                            --output table
+
+
+                            echo.
+                            echo ============================================
+                            echo EKS NODE GROUP HEALTH ISSUES
+                            echo ============================================
+
+                            for /f "delims=" %%N in ('aws eks list-nodegroups --region %AWS_DEFAULT_REGION% --cluster-name %EKS_CLUSTER_NAME% --query "nodegroups[]" --output text') do (
+
+                                echo.
+                                echo --------------------------------------------
+                                echo HEALTH CHECK: %%N
+                                echo --------------------------------------------
+
+                                aws eks describe-nodegroup ^
+                                --region %AWS_DEFAULT_REGION% ^
+                                --cluster-name %EKS_CLUSTER_NAME% ^
+                                --nodegroup-name "%%N" ^
+                                --query "nodegroup.health.issues" ^
+                                --output json
+
+                            )
+
+
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM APPLY FAILED
                             echo ============================================
 
                             exit /b 1
@@ -1053,24 +1130,24 @@ pipeline {
 
                         echo ===== AWS IDENTITY =====
 
-
                         aws sts get-caller-identity
 
+                        echo.
+                        echo ===== AWS REGION =====
+
+                        aws configure get region
 
                         echo.
                         echo ===== UPDATE KUBECONFIG =====
 
-
                         aws eks update-kubeconfig ^
-                          --region ${AWS_DEFAULT_REGION} ^
-                          --name ${params.EKS_CLUSTER_NAME}
-
+                        --region ${AWS_DEFAULT_REGION} ^
+                        --name ${params.EKS_CLUSTER_NAME}
 
                         echo.
                         echo ===== EKS NODES =====
 
-
-                        kubectl get nodes
+                        kubectl get nodes -o wide
 
                     """
                 }
