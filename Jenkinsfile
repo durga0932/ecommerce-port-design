@@ -1099,8 +1099,9 @@ pipeline {
         // ======================================================
         // 15 - CONNECT EKS
         // ======================================================
+         
 
-        stage('15 - Connect to AWS EKS') {
+            stage('15 - Connect to AWS EKS') {
 
             agent {
                 label 'built-in'
@@ -1111,48 +1112,149 @@ pipeline {
                 withCredentials([
 
                     [
-                        $class:
-                        'AmazonWebServicesCredentialsBinding',
+                        $class: 'AmazonWebServicesCredentialsBinding',
 
-                        credentialsId:
-                        "${AWS_CREDENTIALS}",
+                        credentialsId: "${AWS_CREDENTIALS}",
 
-                        accessKeyVariable:
-                        'AWS_ACCESS_KEY_ID',
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
 
-                        secretKeyVariable:
-                        'AWS_SECRET_ACCESS_KEY'
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]
 
                 ]) {
 
                     bat """
 
-                        echo ===== AWS IDENTITY =====
+                        echo.
+                        echo ============================================
+                        echo AWS IDENTITY
+                        echo ============================================
 
                         aws sts get-caller-identity
 
+
                         echo.
-                        echo ===== AWS REGION =====
+                        echo ============================================
+                        echo AWS REGION
+                        echo ============================================
+
+                        echo %AWS_DEFAULT_REGION%
 
                         aws configure get region
 
+
                         echo.
-                        echo ===== UPDATE KUBECONFIG =====
+                        echo ============================================
+                        echo EKS CLUSTER
+                        echo ============================================
+
+                        echo Cluster Name:
+                        echo ${params.EKS_CLUSTER_NAME}
+
+                        echo Region:
+                        echo %AWS_DEFAULT_REGION%
+
+
+                        echo.
+                        echo ============================================
+                        echo EKS CLUSTER STATUS
+                        echo ============================================
+
+                        aws eks describe-cluster ^
+                        --region %AWS_DEFAULT_REGION% ^
+                        --name ${params.EKS_CLUSTER_NAME} ^
+                        --query "cluster.{Name:name,Status:status,Version:version,Endpoint:endpoint}" ^
+                        --output table
+
+
+                        IF %ERRORLEVEL% NEQ 0 (
+
+                            echo.
+                            echo ============================================
+                            echo EKS CLUSTER CHECK FAILED
+                            echo ============================================
+
+                            exit /b 1
+                        )
+
+
+                        echo.
+                        echo ============================================
+                        echo UPDATE KUBECONFIG
+                        echo ============================================
 
                         aws eks update-kubeconfig ^
-                        --region ${AWS_DEFAULT_REGION} ^
+                        --region %AWS_DEFAULT_REGION% ^
                         --name ${params.EKS_CLUSTER_NAME}
 
+
+                        IF %ERRORLEVEL% NEQ 0 (
+
+                            echo.
+                            echo ============================================
+                            echo KUBECONFIG UPDATE FAILED
+                            echo ============================================
+
+                            exit /b 1
+                        )
+
+
                         echo.
-                        echo ===== EKS NODES =====
+                        echo ============================================
+                        echo KUBERNETES CLIENT VERSION
+                        echo ============================================
+
+                        kubectl version --client
+
+
+                        echo.
+                        echo ============================================
+                        echo EKS NODES
+                        echo ============================================
 
                         kubectl get nodes -o wide
+
+
+                        IF %ERRORLEVEL% NEQ 0 (
+
+                            echo.
+                            echo ============================================
+                            echo KUBERNETES NODE CHECK FAILED
+                            echo ============================================
+
+                            exit /b 1
+                        )
+
+
+                        echo.
+                        echo ============================================
+                        echo KUBERNETES CLUSTER INFO
+                        echo ============================================
+
+                        kubectl cluster-info
+
+
+                        IF %ERRORLEVEL% NEQ 0 (
+
+                            echo.
+                            echo ============================================
+                            echo KUBERNETES CONNECTION FAILED
+                            echo ============================================
+
+                            exit /b 1
+                        )
+
+
+                        echo.
+                        echo ============================================
+                        echo EKS CONNECTION SUCCESSFUL
+                        echo ============================================
 
                     """
                 }
             }
         }
+
 
 
         // ======================================================
