@@ -961,7 +961,7 @@ pipeline {
 
                         aws eks update-kubeconfig ^
                           --region ${AWS_DEFAULT_REGION} ^
-                          --name ${EKS_CLUSTER_NAME}
+                          --name ${params.EKS_CLUSTER_NAME}
 
 
                         echo.
