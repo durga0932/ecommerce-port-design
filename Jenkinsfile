@@ -265,7 +265,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
-                    def ipv4Pattern = /^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$/
+                    def ipv4Pattern = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/
 
                     if (!publicIp || !(publicIp ==~ ipv4Pattern)) {
                         error("Unable to detect a valid IPv4 public IP. Detected: ${publicIp}")
