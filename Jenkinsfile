@@ -765,57 +765,119 @@ pipeline {
 
                                 Write-Host "===== WSL WORKSPACE ====="
 
-                                $wslWorkspace = (
-                                    wsl.exe -d Ubuntu -- wslpath -a "$env:WORKSPACE"
-                                ).Trim()
+                                $windowsWorkspace = $env:WORKSPACE
 
-                                if ([string]::IsNullOrWhiteSpace($wslWorkspace)) {
-                                    throw "Could not convert Jenkins workspace to WSL path."
+                                if ([string]::IsNullOrWhiteSpace($windowsWorkspace)) {
+                                    throw "Jenkins WORKSPACE variable is empty."
                                 }
+
+                                $drive = $windowsWorkspace.Substring(0,1).ToLower()
+
+                                $pathWithoutDrive = `
+                                    $windowsWorkspace.Substring(2) -replace '\\','/'
+
+                                $wslWorkspace = "/mnt/$drive$pathWithoutDrive"
+
+
+                                Write-Host "Windows Workspace: $windowsWorkspace"
 
                                 Write-Host "WSL Workspace: $wslWorkspace"
 
 
+                                wsl.exe -d Ubuntu -- bash -lc `
+                                "test -d '$wslWorkspace'"
+
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "WSL workspace does not exist: $wslWorkspace"
+                                }
+
+
+                                Write-Host "WSL workspace verified successfully."
+
+
                                 Write-Host "===== COPY SSH KEY TO WSL ====="
 
-                                $wslKeySource = (
-                                    wsl.exe -d Ubuntu -- wslpath -a "$env:EC2_KEY_FILE"
-                                ).Trim()
+
+                                $windowsKeyPath = $env:EC2_KEY_FILE
+
+                                if ([string]::IsNullOrWhiteSpace($windowsKeyPath)) {
+                                    throw "EC2_KEY_FILE variable is empty."
+                                }
+
+
+                                $keyDrive = $windowsKeyPath.Substring(0,1).ToLower()
+
+                                $keyPathWithoutDrive = `
+                                    $windowsKeyPath.Substring(2) -replace '\\','/'
+
+                                $wslKeySource = "/mnt/$keyDrive$keyPathWithoutDrive"
+
+
+                                Write-Host "Windows SSH Key: $windowsKeyPath"
+
+                                Write-Host "WSL SSH Key: $wslKeySource"
+
+
+                                wsl.exe -d Ubuntu -- bash -lc `
+                                "test -f '$wslKeySource'"
+
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "SSH private key was not found: $wslKeySource"
+                                }
+
 
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "cp '$wslKeySource' /tmp/jenkins-ec2-key.pem && chmod 600 /tmp/jenkins-ec2-key.pem"
+
 
                                 if ($LASTEXITCODE -ne 0) {
                                     throw "Failed to copy SSH private key into WSL2."
                                 }
 
 
+                                Write-Host "SSH private key copied successfully."
+
+
                                 Write-Host "===== CREATE ANSIBLE INVENTORY ====="
+
 
                                 $inventory = @(
                                     "[servers]"
                                     "server ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private_key_file=/tmp/jenkins-ec2-key.pem"
                                 ) -join "`r`n"
 
+
                                 Set-Content `
                                     -Path "$env:WORKSPACE/ansible/inventory" `
                                     -Value $inventory
 
 
+                                Write-Host "Ansible inventory created."
+
+
                                 Write-Host "===== TEST SSH THROUGH ANSIBLE ====="
+
 
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "cd '$wslWorkspace' && export ANSIBLE_CONFIG=ansible/ansible.cfg && ansible -i ansible/inventory servers -m ping"
+
 
                                 if ($LASTEXITCODE -ne 0) {
                                     throw "Ansible SSH connectivity test failed."
                                 }
 
 
+                                Write-Host "===== ANSIBLE SSH CONNECTION SUCCESSFUL ====="
+
+
                                 Write-Host "===== RUN ANSIBLE PLAYBOOK ====="
+
 
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "cd '$wslWorkspace' && export ANSIBLE_CONFIG=ansible/ansible.cfg && ansible-playbook -i ansible/inventory ansible/playbook.yml"
+
 
                                 if ($LASTEXITCODE -ne 0) {
                                     throw "Ansible playbook execution failed."
@@ -826,12 +888,19 @@ pipeline {
 
                             }
 
+
                             finally {
 
                                 Write-Host "===== REMOVE TEMP SSH KEY ====="
 
+
                                 wsl.exe -d Ubuntu -- bash -lc `
                                 "rm -f /tmp/jenkins-ec2-key.pem"
+
+
+                                if ($LASTEXITCODE -eq 0) {
+                                    Write-Host "Temporary SSH key removed successfully."
+                                }
 
                             }
 
@@ -840,6 +909,7 @@ pipeline {
                 }
             }
         }
+
 
 
         // ======================================================
