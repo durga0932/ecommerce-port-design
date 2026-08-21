@@ -49,6 +49,7 @@ data "aws_availability_zones" "available" {
 
 # ============================================================
 # UBUNTU AMI
+# Used only for Ansible EC2
 # ============================================================
 
 data "aws_ssm_parameter" "ubuntu" {
@@ -82,6 +83,7 @@ module "vpc" {
     "10.0.102.0/24"
   ]
 
+  # NAT Gateway for private EKS nodes
   enable_nat_gateway = true
   single_nat_gateway = true
 
@@ -126,6 +128,7 @@ resource "aws_security_group" "ansible_ec2" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+
     cidr_blocks = [
       "0.0.0.0/0"
     ]
@@ -179,6 +182,7 @@ module "eks" {
 
   vpc_id = module.vpc.vpc_id
 
+  # EKS nodes will run inside private subnets
   subnet_ids = module.vpc.private_subnets
 
   # ==========================================================
@@ -189,21 +193,26 @@ module "eks" {
     main = {
       name = "ecommerce-node-group"
 
-      # Changed from t3.medium to t3.micro
+      # EKS worker node
+      # Changed from t3.micro to t3.small
       instance_types = [
-        "t3.micro"
+        "t3.small"
       ]
 
-      # Reduced for low-cost / testing environment
+      # Low-cost testing configuration
       min_size     = 1
-      max_size     = 2
       desired_size = 1
+      max_size     = 2
 
       disk_size = 20
 
       capacity_type = "ON_DEMAND"
     }
   }
+
+  # ==========================================================
+  # EKS TAGS
+  # ==========================================================
 
   tags = {
     Project     = "ecommerce-port-design"
