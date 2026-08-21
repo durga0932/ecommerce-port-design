@@ -49,7 +49,6 @@ data "aws_availability_zones" "available" {
 
 # ============================================================
 # UBUNTU AMI
-# Used only for Ansible EC2
 # ============================================================
 
 data "aws_ssm_parameter" "ubuntu" {
@@ -73,22 +72,41 @@ module "vpc" {
     2
   )
 
+  # ----------------------------------------------------------
+  # PRIVATE SUBNETS
+  # ----------------------------------------------------------
+
   private_subnets = [
     "10.0.1.0/24",
     "10.0.2.0/24"
   ]
+
+  # ----------------------------------------------------------
+  # PUBLIC SUBNETS
+  # ----------------------------------------------------------
 
   public_subnets = [
     "10.0.101.0/24",
     "10.0.102.0/24"
   ]
 
-  # NAT Gateway for private EKS nodes
+  # ----------------------------------------------------------
+  # NAT GATEWAY
+  # ----------------------------------------------------------
+
   enable_nat_gateway = true
   single_nat_gateway = true
 
+  # ----------------------------------------------------------
+  # DNS
+  # ----------------------------------------------------------
+
   enable_dns_hostnames = true
   enable_dns_support   = true
+
+  # ----------------------------------------------------------
+  # EKS SUBNET TAGS
+  # ----------------------------------------------------------
 
   public_subnet_tags = {
     "kubernetes.io/role/elb" = "1"
@@ -105,7 +123,7 @@ module "vpc" {
 }
 
 # ============================================================
-# EC2 SECURITY GROUP
+# ANSIBLE EC2 SECURITY GROUP
 # ============================================================
 
 resource "aws_security_group" "ansible_ec2" {
@@ -136,7 +154,7 @@ resource "aws_security_group" "ansible_ec2" {
 }
 
 # ============================================================
-# EC2 - ANSIBLE SERVER
+# ANSIBLE EC2
 # ============================================================
 
 resource "aws_instance" "ansible_server" {
@@ -167,52 +185,98 @@ resource "aws_instance" "ansible_server" {
 }
 
 # ============================================================
-# EKS CLUSTER
+# EKS
 # ============================================================
 
 module "eks" {
+
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
+
+  # ----------------------------------------------------------
+  # CLUSTER
+  # ----------------------------------------------------------
 
   name               = var.cluster_name
   kubernetes_version = "1.33"
 
-  endpoint_public_access                   = true
+  endpoint_public_access = true
+
   enable_cluster_creator_admin_permissions = true
+
+  # ----------------------------------------------------------
+  # VPC
+  # ----------------------------------------------------------
 
   vpc_id = module.vpc.vpc_id
 
-  # EKS nodes will run inside private subnets
+  # EKS worker nodes in PRIVATE subnets
   subnet_ids = module.vpc.private_subnets
 
-  # ==========================================================
-  # EKS MANAGED NODE GROUP
-  # ==========================================================
+  # ----------------------------------------------------------
+  # EKS ADDONS
+  # ----------------------------------------------------------
+
+  addons = {
+
+    coredns = {
+      most_recent = true
+    }
+
+    kube-proxy = {
+      most_recent = true
+    }
+
+    vpc-cni = {
+      most_recent = true
+    }
+
+    eks-pod-identity-agent = {
+      most_recent = true
+      before_compute = true
+    }
+  }
+
+  # ----------------------------------------------------------
+  # MANAGED NODE GROUP
+  # ----------------------------------------------------------
 
   eks_managed_node_groups = {
+
     main = {
+
       name = "ecommerce-node-group"
 
-      # EKS worker node
-      # Changed from t3.micro to t3.small
+      # Explicitly use AL2023
+      ami_type = "AL2023_x86_64_STANDARD"
+
       instance_types = [
         "t3.small"
       ]
 
-      # Low-cost testing configuration
-      min_size     = 1
+      capacity_type = "ON_DEMAND"
+
+      min_size = 1
+
       desired_size = 1
-      max_size     = 2
+
+      max_size = 2
 
       disk_size = 20
 
-      capacity_type = "ON_DEMAND"
+      # ------------------------------------------------------
+      # UPDATE CONFIG
+      # ------------------------------------------------------
+
+      update_config = {
+        max_unavailable = 1
+      }
     }
   }
 
-  # ==========================================================
-  # EKS TAGS
-  # ==========================================================
+  # ----------------------------------------------------------
+  # TAGS
+  # ----------------------------------------------------------
 
   tags = {
     Project     = "ecommerce-port-design"
