@@ -388,123 +388,121 @@ pipeline {
        // ======================================================
             // 06 - TERRAFORM APPLY
        // ======================================================
+    
+        stage('06 - Terraform Apply') {
 
-            stage('06 - Terraform Apply') {
+            agent {
+                label 'built-in'
+            }
 
-                agent {
-                    label 'built-in'
-                }
+            steps {
 
-                steps {
+                withCredentials([
 
-                    withCredentials([
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding',
+                        credentialsId: "${AWS_CREDENTIALS}",
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
 
-                        [
-                            $class: 'AmazonWebServicesCredentialsBinding',
+                ]) {
 
-                            credentialsId: "${AWS_CREDENTIALS}",
+                    dir('terraform') {
 
-                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                        bat '''
 
-                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                        ]
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM APPLY
+                            echo ============================================
 
-                    ]) {
+                            terraform apply ^
+                            -input=false ^
+                            -auto-approve ^
+                            tfplan
 
-                        dir('terraform') {
 
-                            bat '''
-
-                                echo.
-                                echo ============================================
-                                echo TERRAFORM APPLY
-                                echo ============================================
-
-                                terraform apply ^
-                                -input=false ^
-                                -auto-approve ^
-                                tfplan
-
-                                IF %ERRORLEVEL% EQU 0 (
-
-                                    echo.
-                                    echo ============================================
-                                    echo TERRAFORM APPLY SUCCESSFUL
-                                    echo ============================================
-
-                                    exit /b 0
-                                )
-
+                            IF %ERRORLEVEL% EQU 0 (
 
                                 echo.
                                 echo ============================================
-                                echo TERRAFORM APPLY FAILED
-                                echo EKS DIAGNOSTICS STARTING
+                                echo TERRAFORM APPLY SUCCESSFUL
                                 echo ============================================
 
+                                exit /b 0
+                            )
+
+
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM APPLY FAILED
+                            echo EKS DIAGNOSTICS
+                            echo ============================================
+
+
+                            echo.
+                            echo ============================================
+                            echo AWS ACCOUNT
+                            echo ============================================
+
+                            aws sts get-caller-identity
+
+
+                            echo.
+                            echo ============================================
+                            echo EKS CLUSTER
+                            echo ============================================
+
+                            aws eks describe-cluster ^
+                            --name %EKS_CLUSTER_NAME% ^
+                            --query "cluster.{name:name,status:status,version:version}" ^
+                            --output table
+
+
+                            echo.
+                            echo ============================================
+                            echo EKS NODE GROUPS
+                            echo ============================================
+
+                            aws eks list-nodegroups ^
+                            --cluster-name %EKS_CLUSTER_NAME% ^
+                            --output table
+
+
+                            echo.
+                            echo ============================================
+                            echo NODE GROUP DETAILS
+                            echo ============================================
+
+                            for /f "delims=" %%N in ('aws eks list-nodegroups --cluster-name %EKS_CLUSTER_NAME% --query "nodegroups[]" --output text') do (
 
                                 echo.
-                                echo ===== AWS ACCOUNT =====
+                                echo --------------------------------------------
+                                echo NODE GROUP: %%N
+                                echo --------------------------------------------
 
-                                aws sts get-caller-identity
+                                aws eks describe-nodegroup ^
+                                --cluster-name %EKS_CLUSTER_NAME% ^
+                                --nodegroup-name "%%N" ^
+                                --query "nodegroup.{name:nodegroupName,status:status,ami:amiType,instanceTypes:instanceTypes,capacityType:capacityType,desired:scalingConfig.desiredSize,min:scalingConfig.minSize,max:scalingConfig.maxSize,issues:health.issues}" ^
+                                --output json
 
-
-                                echo.
-                                echo ===== EKS CLUSTER STATUS =====
-
-                                aws eks describe-cluster ^
-                                --name ecommerce-eks ^
-                                --query "cluster.{name:name,status:status,version:version}" ^
-                                --output table
-
-
-                                echo.
-                                echo ===== EKS NODE GROUPS =====
-
-                                aws eks list-nodegroups ^
-                                --cluster-name ecommerce-eks ^
-                                --output table
+                            )
 
 
-                                echo.
-                                echo ===== NODE GROUP STATUS =====
+                            echo.
+                            echo ============================================
+                            echo PIPELINE FAILED
+                            echo ============================================
 
-                                for /f "delims=" %%N in ('aws eks list-nodegroups --cluster-name ecommerce-eks --query "nodegroups[0]" --output text') do (
+                            exit /b 1
 
-                                    echo Node Group: %%N
-
-                                    aws eks describe-nodegroup ^
-                                    --cluster-name ecommerce-eks ^
-                                    --nodegroup-name "%%N" ^
-                                    --query "nodegroup.{name:nodegroupName,status:status,ami:amiType,instanceTypes:instanceTypes,capacityType:capacityType,desired:scalingConfig.desiredSize,min:scalingConfig.minSize,max:scalingConfig.maxSize,issues:health.issues}" ^
-                                    --output json
-
-                                )
-
-
-                                echo.
-                                echo ============================================
-                                echo EC2 INSTANCE CHECK
-                                echo ============================================
-
-                                aws ec2 describe-instances ^
-                                --filters "Name=tag:aws:eks:nodegroup-name,Values=ecommerce-node-group" ^
-                                --query "Reservations[].Instances[].{InstanceId:InstanceId,State:State.Name,PrivateIP:PrivateIpAddress,Subnet:SubnetId}" ^
-                                --output table
-
-
-                                echo.
-                                echo ============================================
-                                echo PIPELINE FAILED
-                                echo ============================================
-
-                                exit /b 1
-
-                            '''
-                        }
+                        '''
                     }
                 }
             }
+        }
 
 
         // ======================================================
