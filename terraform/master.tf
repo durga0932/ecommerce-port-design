@@ -82,11 +82,16 @@ module "vpc" {
     "10.0.102.0/24"
   ]
 
+  # NAT Gateway for private EKS nodes
   enable_nat_gateway = true
   single_nat_gateway = true
 
   enable_dns_hostnames = true
   enable_dns_support   = true
+
+  # ==========================================================
+  # EKS SUBNET TAGS
+  # ==========================================================
 
   public_subnet_tags = {
     "kubernetes.io/role/elb" = "1"
@@ -230,16 +235,17 @@ module "eks" {
       # Amazon Linux 2023
       ami_type = "AL2023_x86_64_STANDARD"
 
-      # Minimum practical size for EKS
+      # Free-tier/testing configuration
       instance_types = [
-        "t3.small"
+        "t3.micro"
       ]
 
       capacity_type = "ON_DEMAND"
 
+      # Only one node required
       min_size     = 1
       desired_size = 1
-      max_size     = 2
+      max_size     = 1
 
       disk_size = 20
 
