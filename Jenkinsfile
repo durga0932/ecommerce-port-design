@@ -332,6 +332,7 @@ pipeline {
         // 05 - TERRAFORM PLAN
         // ======================================================
 
+        
         stage('05 - Terraform Plan') {
 
             agent {
@@ -343,17 +344,10 @@ pipeline {
                 withCredentials([
 
                     [
-                        $class:
-                        'AmazonWebServicesCredentialsBinding',
-
-                        credentialsId:
-                        "${AWS_CREDENTIALS}",
-
-                        accessKeyVariable:
-                        'AWS_ACCESS_KEY_ID',
-
-                        secretKeyVariable:
-                        'AWS_SECRET_ACCESS_KEY'
+                        $class: 'AmazonWebServicesCredentialsBinding',
+                        credentialsId: "${AWS_CREDENTIALS}",
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]
 
                 ]) {
@@ -362,29 +356,66 @@ pipeline {
 
                         bat '''
 
-                            echo ===== AWS ACCOUNT =====
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM CLEAN PLAN
+                            echo ============================================
 
-                            aws sts get-caller-identity
+                            if exist tfplan del /f /q tfplan
 
 
-                            echo ===== TERRAFORM PLAN =====
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM INIT
+                            echo ============================================
 
+                            terraform init -input=false -upgrade
+
+
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM VALIDATE
+                            echo ============================================
+
+                            terraform validate
+
+                            IF %ERRORLEVEL% NEQ 0 (
+                                echo TERRAFORM VALIDATION FAILED
+                                exit /b 1
+                            )
+
+
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM PLAN
+                            echo ============================================
 
                             terraform plan ^
-                              -input=false ^
-                              -var="aws_region=%AWS_DEFAULT_REGION%" ^
-                              -var="cluster_name=%EKS_CLUSTER_NAME%" ^
-                              -var="key_name=%AWS_KEYPAIR_NAME%" ^
-                              -var="admin_cidr=%ADMIN_CIDR%" ^
-                              -out=tfplan
+                            -input=false ^
+                            -var="aws_region=%AWS_DEFAULT_REGION%" ^
+                            -var="cluster_name=%EKS_CLUSTER_NAME%" ^
+                            -var="key_name=%AWS_KEYPAIR_NAME%" ^
+                            -var="admin_cidr=%ADMIN_CIDR%" ^
+                            -out=tfplan
+
+                            IF %ERRORLEVEL% NEQ 0 (
+                                echo TERRAFORM PLAN FAILED
+                                exit /b 1
+                            )
+
+
+                            echo.
+                            echo ============================================
+                            echo TERRAFORM PLAN CREATED
+                            echo ============================================
+
+                            terraform show -no-color tfplan
 
                         '''
                     }
                 }
             }
         }
-
-
        // ======================================================
             // 06 - TERRAFORM APPLY
        // ======================================================
