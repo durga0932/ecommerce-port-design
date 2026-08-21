@@ -619,7 +619,7 @@ pipeline {
                                 ) -join "`r`n"
 
                                 Set-Content `
-                                    -Path "$env:WORKSPACE\ansible\inventory" `
+                                    -Path "$env:WORKSPACE/ansible/inventory" `
                                     -Value $inventory
 
 
