@@ -772,12 +772,6 @@ pipeline {
                                 }
 
 
-                                # Windows path:
-                                # C:\ProgramData\Jenkins\.jenkins\workspace\PROJECT
-                                #
-                                # Convert to:
-                                # /mnt/c/ProgramData/Jenkins/.jenkins/workspace/PROJECT
-
                                 $drive = $windowsWorkspace.Substring(0,1).ToLower()
 
                                 $pathWithoutDrive = $windowsWorkspace.Substring(2).Replace('\', '/')
