@@ -956,7 +956,7 @@ pipeline {
         }
         
 
-        // ======================================================
+     
         // ======================================================
         // 09 - SONARQUBE ANALYSIS
         // ======================================================
@@ -979,7 +979,12 @@ pipeline {
 
                     echo "SonarScanner Home: ${scannerHome}"
 
-                    withSonarQubeEnv('SonarQube') {
+                    withCredentials([
+                        string(
+                            credentialsId: 'sonarqube-token',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
 
                         bat """
                             @echo off
@@ -988,7 +993,8 @@ pipeline {
                             echo SONARQUBE ENVIRONMENT
                             echo ============================================
 
-                            echo SONAR_HOST_URL=%SONAR_HOST_URL%
+                            echo SONARQUBE URL:
+                            echo http://localhost:9000
 
                             echo.
                             echo ============================================
@@ -1011,7 +1017,8 @@ pipeline {
                                 -Dsonar.projectKey=ecommerce-port-design ^
                                 -Dsonar.projectName=ecommerce-port-design ^
                                 -Dsonar.sources=. ^
-                                -Dsonar.host.url=%SONAR_HOST_URL%
+                                -Dsonar.host.url=http://localhost:9000 ^
+                                -Dsonar.token=%SONAR_TOKEN%
 
                             if %ERRORLEVEL% NEQ 0 (
                                 echo ============================================
@@ -1029,7 +1036,6 @@ pipeline {
                 }
             }
         }
-
 
         // ======================================================
         // 10 - SONARQUBE QUALITY GATE
