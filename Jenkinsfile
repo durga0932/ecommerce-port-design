@@ -961,7 +961,7 @@ pipeline {
         // 09 - SONARQUBE ANALYSIS
         // ======================================================
 
-        stage('09 - SonarQube Analysis') {
+       stage('09 - SonarQube Analysis') {
 
             agent {
                 label 'built-in'
@@ -973,70 +973,58 @@ pipeline {
                 echo 'SONARQUBE CODE ANALYSIS'
                 echo '============================================'
 
-
                 script {
 
                     def scannerHome = tool 'SonarScanner'
 
-
                     echo "SonarScanner Home: ${scannerHome}"
 
+                    withSonarQubeEnv('SonarQube') {
 
-                    withCredentials([
-                        string(
-                            credentialsId: 'sonarqube-token',
-                            variable: 'SONAR_TOKEN'
-                        )
-                    ]) {
+                        bat """
+                            @echo off
 
-                        withSonarQubeEnv('SonarQube') {
+                            echo ============================================
+                            echo SONARQUBE ENVIRONMENT
+                            echo ============================================
 
-                            bat """
-                                @echo off
+                            echo SONAR_HOST_URL=%SONAR_HOST_URL%
 
+                            echo.
+                            echo ============================================
+                            echo SONAR SCANNER VERSION
+                            echo ============================================
+
+                            "${scannerHome}\\bin\\sonar-scanner.bat" --version
+
+                            if %ERRORLEVEL% NEQ 0 (
+                                echo SonarScanner failed to start.
+                                exit /b %ERRORLEVEL%
+                            )
+
+                            echo.
+                            echo ============================================
+                            echo STARTING SONARQUBE ANALYSIS
+                            echo ============================================
+
+                            "${scannerHome}\\bin\\sonar-scanner.bat" ^
+                                -Dsonar.projectKey=ecommerce-port-design ^
+                                -Dsonar.projectName=ecommerce-port-design ^
+                                -Dsonar.sources=. ^
+                                -Dsonar.host.url=%SONAR_HOST_URL%
+
+                            if %ERRORLEVEL% NEQ 0 (
                                 echo ============================================
-                                echo SONARQUBE ENVIRONMENT
+                                echo SONARQUBE ANALYSIS FAILED
                                 echo ============================================
+                                exit /b %ERRORLEVEL%
+                            )
 
-                                echo SONAR_HOST_URL=%SONAR_HOST_URL%
-
-                                echo.
-                                echo ============================================
-                                echo SONAR SCANNER VERSION
-                                echo ============================================
-
-                                "${scannerHome}\\bin\\sonar-scanner.bat" --version
-
-                                if %ERRORLEVEL% NEQ 0 (
-                                    echo SonarScanner failed to start.
-                                    exit /b %ERRORLEVEL%
-                                )
-
-                                echo.
-                                echo ============================================
-                                echo STARTING SONARQUBE ANALYSIS
-                                echo ============================================
-
-                                "${scannerHome}\\bin\\sonar-scanner.bat" ^
-                                    -Dsonar.projectKey=ecommerce-port-design ^
-                                    -Dsonar.projectName=ecommerce-port-design ^
-                                    -Dsonar.sources=. ^
-                                    -Dsonar.host.url=%SONAR_HOST_URL% ^
-                                    -Dsonar.token=%SONAR_TOKEN%
-
-                                if %ERRORLEVEL% NEQ 0 (
-                                    echo ============================================
-                                    echo SONARQUBE ANALYSIS FAILED
-                                    echo ============================================
-                                    exit /b %ERRORLEVEL%
-                                )
-
-                                echo.
-                                echo ============================================
-                                echo SONARQUBE ANALYSIS COMPLETED
-                                echo ============================================
-                            """
-                        }
+                            echo.
+                            echo ============================================
+                            echo SONARQUBE ANALYSIS COMPLETED
+                            echo ============================================
+                        """
                     }
                 }
             }
