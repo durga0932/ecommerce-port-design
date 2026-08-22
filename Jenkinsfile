@@ -689,274 +689,273 @@ pipeline {
         // 08 - ANSIBLE
         // ======================================================
 
-        stage('08 - Ansible Configuration') {
+          stage('08 - Ansible Configuration') {
 
-                agent {
-                    label 'built-in'
-                }
+            agent {
+                label 'built-in'
+            }
 
-                steps {
+            steps {
 
-                    script {
+                script {
 
-                        def ec2Output = bat(
-                            script: '''
-                                @echo off
-                                cd terraform
-                                terraform output -raw ec2_public_ip
-                            ''',
-                            returnStdout: true
-                        ).trim()
+                    def ec2Output = bat(
+                        script: '''
+                            @echo off
+                            cd terraform
+                            terraform output -raw ec2_public_ip
+                        ''',
+                        returnStdout: true
+                    ).trim()
 
 
-                        if (!ec2Output) {
+                    if (!ec2Output) {
+                        error(
+                            'Terraform did not return ec2_public_ip. Ansible cannot continue.'
+                        )
+                    }
 
-                            error(
-                                'Terraform did not return ec2_public_ip. Ansible cannot continue.'
-                            )
-                        }
 
+                    echo '============================================'
+                    echo 'EC2 FOUND'
+                    echo "EC2 PUBLIC IP: ${ec2Output}"
+                    echo 'STARTING ANSIBLE'
+                    echo '============================================'
 
-                        echo '============================================'
-                        echo 'EC2 FOUND'
-                        echo "EC2 PUBLIC IP: ${ec2Output}"
-                        echo 'STARTING ANSIBLE'
-                        echo '============================================'
 
+                    withCredentials([
 
-                        withCredentials([
+                        sshUserPrivateKey(
+                            credentialsId: "${EC2_SSH_CREDENTIALS}",
+                            keyFileVariable: 'EC2_KEY_FILE',
+                            usernameVariable: 'EC2_USER'
+                        )
 
-                            sshUserPrivateKey(
-                                credentialsId: "${EC2_SSH_CREDENTIALS}",
-                                keyFileVariable: 'EC2_KEY_FILE',
-                                usernameVariable: 'EC2_USER'
-                            )
+                    ]) {
 
-                        ]) {
+                        powershell '''
 
-                            powershell '''
+                            $ErrorActionPreference = "Stop"
 
-                                $ErrorActionPreference = "Stop"
+                            try {
 
+                                Write-Host "============================================"
+                                Write-Host "===== ANSIBLE VERSION ====="
+                                Write-Host "============================================"
 
-                                try {
+                                wsl.exe -d Ubuntu -- bash -lc "ansible --version"
 
-                                    Write-Host "============================================"
-                                    Write-Host "===== ANSIBLE VERSION ====="
-                                    Write-Host "============================================"
-
-
-                                    wsl.exe -d Ubuntu -- bash -lc "ansible --version"
-
-
-                                    if ($LASTEXITCODE -ne 0) {
-                                        throw "Ansible is not available inside WSL2 Ubuntu."
-                                    }
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== EC2 IP ====="
-                                    Write-Host "============================================"
-
-
-                                    $ec2Ip = (
-                                        terraform -chdir=terraform output -raw ec2_public_ip
-                                    ).Trim()
-
-
-                                    if ([string]::IsNullOrWhiteSpace($ec2Ip)) {
-                                        throw "EC2 Public IP was not returned by Terraform."
-                                    }
-
-
-                                    Write-Host "EC2 IP: $ec2Ip"
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== WSL WORKSPACE ====="
-                                    Write-Host "============================================"
-
-
-                                    $windowsWorkspace = $env:WORKSPACE
-
-
-                                    if ([string]::IsNullOrWhiteSpace($windowsWorkspace)) {
-                                        throw "Jenkins WORKSPACE variable is empty."
-                                    }
-
-
-                                    $drive = $windowsWorkspace.Substring(0,1).ToLower()
-
-
-                                    $pathWithoutDrive = $windowsWorkspace.Substring(2).Replace('\', '/')
-
-
-                                    $wslWorkspace = "/mnt/$drive$pathWithoutDrive"
-
-
-                                    Write-Host "Windows Workspace: $windowsWorkspace"
-                                    Write-Host "WSL Workspace: $wslWorkspace"
-
-
-                                    Write-Host "===== VERIFY WSL WORKSPACE ====="
-
-
-                                    wsl.exe -d Ubuntu -- bash -lc "test -d '$wslWorkspace'"
-
-
-                                    if ($LASTEXITCODE -ne 0) {
-                                        throw "WSL workspace does not exist: $wslWorkspace"
-                                    }
-
-
-                                    Write-Host "WSL workspace verified successfully."
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== COPY SSH KEY TO WSL ====="
-                                    Write-Host "============================================"
-
-
-                                    $windowsKeyPath = $env:EC2_KEY_FILE
-
-
-                                    if ([string]::IsNullOrWhiteSpace($windowsKeyPath)) {
-                                        throw "EC2_KEY_FILE variable is empty."
-                                    }
-
-
-                                    $keyDrive = $windowsKeyPath.Substring(0,1).ToLower()
-
-
-                                    $keyPathWithoutDrive = $windowsKeyPath.Substring(2).Replace('\', '/')
-
-
-                                    $wslKeySource = "/mnt/$keyDrive$keyPathWithoutDrive"
-
-
-                                    Write-Host "Windows SSH Key: $windowsKeyPath"
-                                    Write-Host "WSL SSH Key: $wslKeySource"
-
-
-                                    Write-Host "===== VERIFY SSH KEY ====="
-
-
-                                    wsl.exe -d Ubuntu -- bash -lc "test -f '$wslKeySource'"
-
-
-                                    if ($LASTEXITCODE -ne 0) {
-                                        throw "SSH private key was not found: $wslKeySource"
-                                    }
-
-
-                                    Write-Host "SSH private key found successfully."
-
-
-                                    Write-Host "===== COPY SSH KEY INTO WSL ====="
-
-
-                                    wsl.exe -d Ubuntu -- bash -lc "cp '$wslKeySource' /tmp/jenkins-ec2-key.pem && chmod 600 /tmp/jenkins-ec2-key.pem"
-
-
-                                    if ($LASTEXITCODE -ne 0) {
-                                        throw "Failed to copy SSH private key into WSL2."
-                                    }
-
-
-                                    Write-Host "SSH private key copied successfully."
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== CREATE ANSIBLE INVENTORY ====="
-                                    Write-Host "============================================"
-
-
-                                    $inventory = @(
-                                        "[servers]"
-                                        "server ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private_key_file=/tmp/jenkins-ec2-key.pem"
-                                    ) -join "`r`n"
-
-
-                                    $ansibleDirectory = Join-Path $env:WORKSPACE "ansible"
-
-
-                                    if (-not (Test-Path $ansibleDirectory)) {
-                                        throw "Ansible directory does not exist: $ansibleDirectory"
-                                    }
-
-
-                                    $inventoryPath = Join-Path $ansibleDirectory "inventory"
-
-
-                                    Set-Content `
-                                        -Path $inventoryPath `
-                                        -Value $inventory `
-                                        -Encoding UTF8
-
-
-                                    Write-Host "Ansible inventory created successfully."
-                                    Write-Host "Inventory path: $inventoryPath"
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== TEST SSH THROUGH ANSIBLE ====="
-                                    Write-Host "============================================"
-
-
-                                    wsl.exe -d Ubuntu -- bash -lc "cd '$wslWorkspace' && export ANSIBLE_CONFIG=ansible/ansible.cfg && ansible -i ansible/inventory servers -m ping"
-
-
-                                    if ($LASTEXITCODE -ne 0) {
-                                        throw "Ansible SSH connectivity test failed."
-                                    }
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== ANSIBLE SSH CONNECTION SUCCESSFUL ====="
-                                    Write-Host "============================================"
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== RUN ANSIBLE PLAYBOOK ====="
-                                    Write-Host "============================================"
-
-
-                                    wsl.exe -d Ubuntu -- bash -lc "cd '$wslWorkspace' && export ANSIBLE_CONFIG=ansible/ansible.cfg && ansible-playbook -i ansible/inventory ansible/playbook.yml"
-
-
-                                    if ($LASTEXITCODE -ne 0) {
-                                        throw "Ansible playbook execution failed."
-                                    }
-
-
-                                    Write-Host "============================================"
-                                    Write-Host "===== ANSIBLE COMPLETED SUCCESSFULLY ====="
-                                    Write-Host "============================================"
-
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Ansible is not available inside WSL2 Ubuntu."
                                 }
 
 
-                                finally {
+                                Write-Host "============================================"
+                                Write-Host "===== EC2 IP ====="
+                                Write-Host "============================================"
 
-                                    Write-Host "============================================"
-                                    Write-Host "===== REMOVE TEMP SSH KEY ====="
-                                    Write-Host "============================================"
+                                $ec2Ip = (
+                                    terraform -chdir=terraform output -raw ec2_public_ip
+                                ).Trim()
 
-
-                                    wsl.exe -d Ubuntu -- bash -lc "rm -f /tmp/jenkins-ec2-key.pem"
-
-
-                                    if ($LASTEXITCODE -eq 0) {
-                                        Write-Host "Temporary SSH key removed successfully."
-                                    }
-
+                                if ([string]::IsNullOrWhiteSpace($ec2Ip)) {
+                                    throw "EC2 Public IP was not returned by Terraform."
                                 }
 
-                            '''
-                        }
+                                Write-Host "EC2 IP: $ec2Ip"
+
+
+                                Write-Host "============================================"
+                                Write-Host "===== WSL WORKSPACE ====="
+                                Write-Host "============================================"
+
+                                $windowsWorkspace = $env:WORKSPACE
+
+                                if ([string]::IsNullOrWhiteSpace($windowsWorkspace)) {
+                                    throw "Jenkins WORKSPACE variable is empty."
+                                }
+
+                                Write-Host "Windows Workspace: $windowsWorkspace"
+
+
+                                # Get Windows drive letter
+                                $drive = $windowsWorkspace.Substring(0,1).ToLower()
+
+
+                                # Remove C: / D: etc.
+                                # Convert Windows backslash character (ASCII 92)
+                                # to Linux forward slash (ASCII 47)
+
+                                $pathWithoutDrive = $windowsWorkspace.Substring(2).Replace([char]92, [char]47)
+
+
+                                # Build WSL path
+
+                                $wslWorkspace = "/mnt/$drive$pathWithoutDrive"
+
+
+                                Write-Host "WSL Workspace: $wslWorkspace"
+
+
+                                Write-Host "===== VERIFY WSL WORKSPACE ====="
+
+                                wsl.exe -d Ubuntu -- bash -lc "test -d '$wslWorkspace'"
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "WSL workspace does not exist: $wslWorkspace"
+                                }
+
+                                Write-Host "WSL workspace verified successfully."
+
+
+                                Write-Host "============================================"
+                                Write-Host "===== COPY SSH KEY TO WSL ====="
+                                Write-Host "============================================"
+
+
+                                $windowsKeyPath = $env:EC2_KEY_FILE
+
+                                if ([string]::IsNullOrWhiteSpace($windowsKeyPath)) {
+                                    throw "EC2_KEY_FILE variable is empty."
+                                }
+
+
+                                Write-Host "Windows SSH Key: $windowsKeyPath"
+
+
+                                # SSH key drive
+
+                                $keyDrive = $windowsKeyPath.Substring(0,1).ToLower()
+
+
+                                # Convert Windows SSH path to WSL path
+
+                                $keyPathWithoutDrive = $windowsKeyPath.Substring(2).Replace([char]92, [char]47)
+
+
+                                $wslKeySource = "/mnt/$keyDrive$keyPathWithoutDrive"
+
+
+                                Write-Host "WSL SSH Key: $wslKeySource"
+
+
+                                Write-Host "===== VERIFY SSH KEY ====="
+
+
+                                wsl.exe -d Ubuntu -- bash -lc "test -f '$wslKeySource'"
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "SSH private key was not found: $wslKeySource"
+                                }
+
+                                Write-Host "SSH private key found successfully."
+
+
+                                Write-Host "===== COPY SSH KEY INTO WSL ====="
+
+
+                                wsl.exe -d Ubuntu -- bash -lc "cp '$wslKeySource' /tmp/jenkins-ec2-key.pem && chmod 600 /tmp/jenkins-ec2-key.pem"
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Failed to copy SSH private key into WSL2."
+                                }
+
+                                Write-Host "SSH private key copied successfully."
+
+
+                                Write-Host "============================================"
+                                Write-Host "===== CREATE ANSIBLE INVENTORY ====="
+                                Write-Host "============================================"
+
+
+                                $inventory = @(
+                                    "[servers]"
+                                    "server ansible_host=$ec2Ip ansible_user=$env:EC2_USER ansible_ssh_private_key_file=/tmp/jenkins-ec2-key.pem"
+                                ) -join "`r`n"
+
+
+                                $ansibleDirectory = Join-Path $env:WORKSPACE "ansible"
+
+
+                                if (-not (Test-Path $ansibleDirectory)) {
+                                    throw "Ansible directory does not exist: $ansibleDirectory"
+                                }
+
+
+                                $inventoryPath = Join-Path $ansibleDirectory "inventory"
+
+
+                                Set-Content `
+                                    -Path $inventoryPath `
+                                    -Value $inventory `
+                                    -Encoding UTF8
+
+
+                                Write-Host "Ansible inventory created successfully."
+                                Write-Host "Inventory path: $inventoryPath"
+
+
+                                Write-Host "============================================"
+                                Write-Host "===== TEST SSH THROUGH ANSIBLE ====="
+                                Write-Host "============================================"
+
+
+                                wsl.exe -d Ubuntu -- bash -lc "cd '$wslWorkspace' && export ANSIBLE_CONFIG=ansible/ansible.cfg && ansible -i ansible/inventory servers -m ping"
+
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Ansible SSH connectivity test failed."
+                                }
+
+
+                                Write-Host "============================================"
+                                Write-Host "===== ANSIBLE SSH CONNECTION SUCCESSFUL ====="
+                                Write-Host "============================================"
+
+
+                                Write-Host "============================================"
+                                Write-Host "===== RUN ANSIBLE PLAYBOOK ====="
+                                Write-Host "============================================"
+
+
+                                wsl.exe -d Ubuntu -- bash -lc "cd '$wslWorkspace' && export ANSIBLE_CONFIG=ansible/ansible.cfg && ansible-playbook -i ansible/inventory ansible/playbook.yml"
+
+
+                                if ($LASTEXITCODE -ne 0) {
+                                    throw "Ansible playbook execution failed."
+                                }
+
+
+                                Write-Host "============================================"
+                                Write-Host "===== ANSIBLE COMPLETED SUCCESSFULLY ====="
+                                Write-Host "============================================"
+
+                            }
+
+
+                            finally {
+
+                                Write-Host "============================================"
+                                Write-Host "===== REMOVE TEMP SSH KEY ====="
+                                Write-Host "============================================"
+
+
+                                wsl.exe -d Ubuntu -- bash -lc "rm -f /tmp/jenkins-ec2-key.pem"
+
+
+                                if ($LASTEXITCODE -eq 0) {
+                                    Write-Host "Temporary SSH key removed successfully."
+                                }
+
+                            }
+
+                        '''
                     }
                 }
             }
+        }
+        
+
         // ======================================================
         // 09 - SONARQUBE
         // ======================================================
