@@ -76,7 +76,7 @@ pipeline {
         // ------------------------------------------------------
 
         GITLAB_REPO =
-            'https://gitlab.com/SOFTAPP-TECHNOLOGIES/ecommerce-port-design.git'
+            'https://github.com/durga0932/ecommerce-port-design.git'
 
         GITLAB_BRANCH =
             'main'
